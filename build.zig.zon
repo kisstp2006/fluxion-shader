@@ -16,6 +16,13 @@
         // What the examples draw the compiled shader with. Lazy: fetched only
         // when the examples are built, which is when this is the root package
         // or `-Dexamples` is given. The library emits text and nothing else.
+        //
+        // This and fluxion-rhi name each other, and one of the two is always
+        // a commit behind: bumping either makes the other stale, so there is
+        // no version of this file where both are current. It does not matter.
+        // Each uses the other's *library*, never its examples, and a package
+        // that is not the root never asks for its examples' dependencies - so
+        // neither is ever fetched from inside the other.
         .fluxion_rhi = .{
             .url = "git+https://github.com/kisstp2006/fluxion-rhi#57317ddcd4f76032c7371801a5dfd33de42c9b76",
             .hash = "fluxion_rhi-0.1.0--pvwDxduAwBk1-JMJqQTCbjfN2k6gpKM66rONP5_UCMo",
