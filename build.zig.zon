@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSL-1.0
+
+.{
+    .name = .fluxion_shader,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0x3900ee3c124ca116,
+    .dependencies = .{
+        // The cursor the lexer reads with, and the line-and-column a
+        // diagnostic is printed at.
+        .fluxion_text = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-text#5d87f1578401d35c0b9881d2c678ef56c4ceccd4",
+            .hash = "fluxion_text-0.1.0-cIhfioG2AgAJJ9hB0dOMWhHvk6ConZmD0OTreG41NoLX",
+        },
+
+        // What the examples draw the compiled shader with. Lazy: fetched only
+        // when the examples are built, which is when this is the root package
+        // or `-Dexamples` is given. The library emits text and nothing else.
+        .fluxion_rhi = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-rhi#57317ddcd4f76032c7371801a5dfd33de42c9b76",
+            .hash = "fluxion_rhi-0.1.0--pvwDxduAwBk1-JMJqQTCbjfN2k6gpKM66rONP5_UCMo",
+            .lazy = true,
+        },
+        .fluxion_platform = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-platform#373505b40d7d5d20840adba8485cc3bf707ce4ce",
+            .hash = "fluxion_platform-0.1.0-WsOjUVkbDADvAs9Vhe9Wbgw8FROUEtsQIVRwAiLuonq5",
+            .lazy = true,
+        },
+        .fluxion_image = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-image#034c37b6ab2511088973bcb96ffb5ada06b4b038",
+            .hash = "fluxion_image-0.1.0-fyJkdUhXAAAijeOycvswOxJWKcXIuU8MVaOHi0L8L7K0",
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "examples",
+        "README.md",
+    },
+}
