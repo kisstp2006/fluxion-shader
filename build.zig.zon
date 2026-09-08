@@ -24,8 +24,8 @@
         // that is not the root never asks for its examples' dependencies - so
         // neither is ever fetched from inside the other.
         .fluxion_rhi = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-rhi#883521613e3ad8b9d23a48378f273bfb79729de1",
-            .hash = "fluxion_rhi-0.1.0--pvwD-d5AwCHFO5stlCjJdOwzb0lY1rvsuI2ecb5qgob",
+            .url = "git+https://github.com/kisstp2006/fluxion-rhi#0dcab6ee588da222fc6d2bb433d3e1e82d3154dd",
+            .hash = "fluxion_rhi-0.1.0--pvwD-d5AwApSurAJcTXAHSsi4Vx2KRGY-PhZ6UII1fN",
             .lazy = true,
         },
         .fluxion_platform = .{
