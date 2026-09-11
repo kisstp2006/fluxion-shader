@@ -267,6 +267,9 @@ const reserved = std.StaticStringMap(void).initComptime(.{
     .{"float4x4"},    .{"half"},         .{"double"},      .{"dword"},           .{"lerp"},
     .{"frac"},        .{"rsqrt"},        .{"ddx"},         .{"ddy"},             .{"mul"},
     .{"gl_Position"}, .{"gl_FragCoord"}, .{"gl_VertexID"}, .{"gl_InstanceID"},   .{"technique"},
+    // The precisions GLSL ES writes before a type, and which the ES output
+    // declares at the top of every stage.
+    .{"lowp"},        .{"mediump"},      .{"highp"},
 });
 
 fn checkName(self: *Sema, text: []const u8, offset: u32) void {

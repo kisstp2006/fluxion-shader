@@ -2,13 +2,13 @@
 
 //! Fluxion Shader - one shader, in the language of whichever backend asks.
 //!
-//! A small shading language, read once and written out twice: as GLSL 3.30
-//! core and as HLSL for shader model 5.0, which are what
-//! [Fluxion RHI](https://github.com/kisstp2006/fluxion-rhi)'s two backends
-//! take. Beside them come the numbers a pipeline is described with - which
-//! location an attribute is at, which slot a block is bound to, where each of
-//! its fields starts - so that they are written once, in the shader, and read
-//! back rather than repeated.
+//! A small shading language, read once and written out three times: as GLSL
+//! 3.30 core, as GLSL ES 3.00 and as HLSL for shader model 5.0, which are
+//! what [Fluxion RHI](https://github.com/kisstp2006/fluxion-rhi)'s OpenGL,
+//! WebGL and Direct3D backends take. Beside them come the numbers a pipeline
+//! is described with - which location an attribute is at, which slot a block
+//! is bound to, where each of its fields starts - so that they are written
+//! once, in the shader, and read back rather than repeated.
 //!
 //! ```zig
 //! const shader = @import("fluxion_shader");
@@ -24,6 +24,7 @@
 //!
 //! const handle = try device.createShader(.{
 //!     .glsl = .{ .vertex = module.glsl.vertex, .fragment = module.glsl.fragment },
+//!     .glsl_es = .{ .vertex = module.glsl_es.vertex, .fragment = module.glsl_es.fragment },
 //!     .hlsl = .{ .vertex = module.hlsl.vertex, .fragment = module.hlsl.fragment },
 //! });
 //! ```
@@ -91,7 +92,7 @@ pub const Error = error{
     CompileFailed,
 } || Allocator.Error;
 
-/// Read one source and write out four.
+/// Read one source and write out six: two stages in each of three languages.
 ///
 /// Every complaint goes to `log`, in the order it was found, each with the
 /// line it happened on and a caret under the column. A log that stays empty
@@ -133,10 +134,14 @@ pub fn compile(gpa: Allocator, source: []const u8, log: *std.Io.Writer) Error!Mo
 
     // Every allocation happens before the arena is handed over, because
     // handing it over copies the bookkeeping that says what to free.
-    const sources: struct { Module.Sources, Module.Sources } = .{
+    const sources: struct { Module.Sources, Module.Sources, Module.Sources } = .{
         .{
             .vertex = try emit(keep, glsl.emit, &program, .vertex),
             .fragment = try emit(keep, glsl.emit, &program, .fragment),
+        },
+        .{
+            .vertex = try emit(keep, glsl.emitEs, &program, .vertex),
+            .fragment = try emit(keep, glsl.emitEs, &program, .fragment),
         },
         .{
             .vertex = try emit(keep, hlsl.emit, &program, .vertex),
@@ -150,7 +155,8 @@ pub fn compile(gpa: Allocator, source: []const u8, log: *std.Io.Writer) Error!Mo
     return .{
         .arena = owned,
         .glsl = sources[0],
-        .hlsl = sources[1],
+        .glsl_es = sources[1],
+        .hlsl = sources[2],
         .attributes = attributes,
         .blocks = blocks,
         .textures = textures,

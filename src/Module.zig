@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BSL-1.0
 
-//! What comes out: four sources, and what a program has to know to bind them.
+//! What comes out: six sources, and what a program has to know to bind them.
 //!
-//! The two languages, two stages each, in the shape
+//! The three languages, two stages each, in the shape
 //! [Fluxion RHI](https://github.com/kisstp2006/fluxion-rhi) takes them - and
 //! beside them the numbers a pipeline is described with, so that a location,
 //! a slot and a name are written down once, in the shader, and read back from
@@ -14,6 +14,7 @@
 //!
 //! const handle = try device.createShader(.{
 //!     .glsl = .{ .vertex = module.glsl.vertex, .fragment = module.glsl.fragment },
+//!     .glsl_es = .{ .vertex = module.glsl_es.vertex, .fragment = module.glsl_es.fragment },
 //!     .hlsl = .{ .vertex = module.hlsl.vertex, .fragment = module.hlsl.fragment },
 //! });
 //! ```
@@ -73,7 +74,12 @@ pub const Texture = struct {
 };
 
 arena: std.heap.ArenaAllocator,
+/// GLSL 3.30 core, for desktop OpenGL.
 glsl: Sources,
+/// GLSL ES 3.00, for WebGL 2. The same text as `glsl` under a different
+/// first few lines - see `glsl.Dialect`.
+glsl_es: Sources,
+/// HLSL for shader model 5.0, for Direct3D 11.
 hlsl: Sources,
 /// In the order they were declared, which is not the order of their
 /// locations.

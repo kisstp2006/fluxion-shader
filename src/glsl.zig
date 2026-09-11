@@ -1,8 +1,20 @@
 // SPDX-License-Identifier: BSL-1.0
 
-//! The tree, written out as GLSL 3.30 core.
+//! The tree, written out as GLSL: 3.30 core for desktop OpenGL, and 3.00 ES
+//! for WebGL 2.
 //!
-//! The easier of the two, because the language was designed around the same
+//! **The two GLSLs differ only in their first lines.** ES wants `#version 300
+//! es`, and it has no default precision for a float in the fragment stage, so
+//! one is declared - `highp`, in both stages, because a uniform block seen by
+//! both has to be seen at one precision. Everything else the emitter writes is
+//! already inside what the two share: attributes placed with
+//! `layout(location)`, one colour output, `std140` blocks bound by name, and
+//! not one implicit conversion - the only one the language makes happens to
+//! the literal, before anything is written. So there is one emitter and a
+//! header that depends on which GLSL was asked for, and a test holds the rest
+//! of the two to being the same text.
+//!
+//! The easier of the two languages, because it was designed around the same
 //! ideas: a vertex stage writes `gl_Position`, attributes and varyings are
 //! global, and a uniform block declared without an instance name puts its
 //! fields in scope. What changes on the way out is small and named here:
@@ -39,18 +51,68 @@ const Emitter = struct {
 };
 
 /// The name the emitter gives the fragment stage's colour output. Chosen
-/// rather than `gl_FragColor`, which GLSL 3.30 core does not have.
+/// rather than `gl_FragColor`, which neither GLSL 3.30 core nor GLSL ES 3.00
+/// has.
 pub const target_name = "fluxion_target";
 
-/// Write one stage.
+/// Which GLSL to write.
+pub const Dialect = enum {
+    /// GLSL 3.30 core: desktop OpenGL 3.3, what Fluxion RHI's `gl` backend
+    /// takes.
+    core,
+    /// GLSL ES 3.00: WebGL 2, and OpenGL ES 3.0 on a phone. What Fluxion
+    /// RHI's `webgl` backend takes.
+    es,
+
+    /// Everything before the first declaration.
+    pub fn header(self: Dialect) []const u8 {
+        return switch (self) {
+            .core => "#version 330 core\n\n",
+            // The version first, on the very first line: a WebGL 2 context
+            // compiles a shader without it as GLSL ES 1.00, and complains
+            // about `in` rather than about the missing line. The precisions
+            // are the ones ES leaves out, stated for both stages alike.
+            .es =>
+            \\#version 300 es
+            \\
+            \\precision highp float;
+            \\precision highp int;
+            \\precision highp sampler2D;
+            \\
+            \\
+            ,
+        };
+    }
+};
+
+/// Write one stage as GLSL 3.30 core.
 pub fn emit(
     program: *const ast.Program,
     stage: sema.Where,
     w: *std.Io.Writer,
 ) std.Io.Writer.Error!void {
+    return emitDialect(program, stage, .core, w);
+}
+
+/// Write one stage as GLSL ES 3.00, for WebGL 2.
+pub fn emitEs(
+    program: *const ast.Program,
+    stage: sema.Where,
+    w: *std.Io.Writer,
+) std.Io.Writer.Error!void {
+    return emitDialect(program, stage, .es, w);
+}
+
+/// Write one stage in either GLSL.
+pub fn emitDialect(
+    program: *const ast.Program,
+    stage: sema.Where,
+    dialect: Dialect,
+    w: *std.Io.Writer,
+) std.Io.Writer.Error!void {
     var e: Emitter = .{ .program = program, .w = w, .stage = stage };
 
-    try w.writeAll("#version 330 core\n\n");
+    try w.writeAll(dialect.header());
 
     if (stage == .vertex) {
         for (program.attributes) |a| {

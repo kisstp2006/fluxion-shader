@@ -7,9 +7,9 @@ One shader, in the language of whichever backend asks. For Zig 0.16.
 | `lex` | Source text into tokens, over [Fluxion Text](https://github.com/kisstp2006/fluxion-text)'s cursor. |
 | `parse` | Tokens into a tree. Recursive descent, one token of lookahead, and it stops at the first thing it cannot read. |
 | `sema` | What the tree means: every name resolved, every expression typed, every call matched. Reports as many mistakes as it finds, not just the first. |
-| `glsl` | The tree as GLSL 3.30 core. |
+| `glsl` | The tree as GLSL 3.30 core, and as GLSL ES 3.00 for WebGL 2. |
 | `hlsl` | The tree as HLSL for shader model 5.0. |
-| `Module` | What comes out: four sources, and the numbers a pipeline is described with. |
+| `Module` | What comes out: six sources, and the numbers a pipeline is described with. |
 | `diag` | Where a complaint goes, with the line under it and a caret at the column. |
 
 ```zig
@@ -26,6 +26,7 @@ defer module.deinit();
 
 const handle = try device.createShader(.{
     .glsl = .{ .vertex = module.glsl.vertex, .fragment = module.glsl.fragment },
+    .glsl_es = .{ .vertex = module.glsl_es.vertex, .fragment = module.glsl_es.fragment },
     .hlsl = .{ .vertex = module.hlsl.vertex, .fragment = module.hlsl.fragment },
 });
 ```
@@ -60,10 +61,15 @@ and emitted. A mistake is a message with a line and a column on it, in the
 language the author actually wrote — not something a driver says later about
 text nobody typed.
 
-**One tree, two backs.** The same checked tree is written out twice, and the
-types on it are what decide the difference: `a * b` on two floats is `*` in
-both languages, and on a matrix and a vector it is `*` in GLSL and `mul` in
-HLSL. Nothing is textually substituted.
+**One tree, three backs.** The same checked tree is written out as GLSL, as
+GLSL ES and as HLSL, and the types on it are what decide the difference:
+`a * b` on two floats is `*` in every one of them, and on a matrix and a
+vector it is `*` in GLSL and `mul` in HLSL. Nothing is textually substituted.
+The two GLSLs differ only in their first lines - `#version 300 es`, and the
+precisions ES leaves undeclared - because everything the emitter writes after
+that is already inside what they share, down to there being no implicit
+conversions anywhere. A test holds the rest of the two to being the same
+text, byte for byte.
 
 **The bindings are written once.** A location, a slot, a block name, a
 texture name and the byte offset of every uniform field are in the shader, and
@@ -210,11 +216,12 @@ moment there is one answer rather than two:
 
 ## What comes out
 
-`Module` holds four sources and what a program has to know to bind them:
+`Module` holds six sources and what a program has to know to bind them:
 
 ```zig
-module.glsl.vertex     // and .fragment
-module.hlsl.vertex     // and .fragment
+module.glsl.vertex     // and .fragment - OpenGL 3.3
+module.glsl_es.vertex  // and .fragment - WebGL 2
+module.hlsl.vertex     // and .fragment - Direct3D 11
 
 module.attributes      // name, type, location
 module.blocks          // name, slot, size, and every field's byte offset
@@ -248,13 +255,13 @@ without them:
 - **A varying the vertex stage never writes.** The fragment stage would read
   whatever was in the register.
 - **A name the emitter uses, or one either language reserves.** `input`,
-  `sample`, `linear`, anything starting `gl_` or `fluxion`.
+  `sample`, `linear`, `highp`, anything starting `gl_` or `fluxion`.
 
 ## Examples
 
 | Example | What it shows |
 | --- | --- |
-| `zig build example` | One source, both languages, and the reflection printed underneath. No window, no driver, no graphics card. `-- --stage fragment` prints the other stage; `-- --refuse` shows what three mistakes look like on the way out. |
+| `zig build example` | One source, all three languages, and the reflection printed underneath. No window, no driver, no graphics card. `-- --stage fragment` prints the other stage; `-- --refuse` shows what three mistakes look like on the way out. |
 | `zig build example-quad` | The compiled shader given to a real driver, through Fluxion RHI, with the pipeline described out of the module's own reflection. `-- --backend gl` or `d3d11`; `-- --capture out.png` draws one frame to a file. |
 
 The second one carries the test that matters. Everything the library's own
@@ -273,7 +280,7 @@ that looks right is not.
 
 ```bash
 zig build test                  # run the test suite
-zig build example               # one source, two languages, printed
+zig build example               # one source, three languages, printed
 zig build example-quad          # the same shader, drawn on a real driver
 zig build example-quad -- --backend gl
 zig build examples              # every example in turn

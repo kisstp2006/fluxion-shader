@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSL-1.0
 
-//! One shader in, two languages out, printed side by side.
+//! One shader in, three languages out, printed side by side.
 //!
 //! Run it with `zig build example`. It needs no window, no driver and no
 //! graphics card: the whole of this library is text in and text out, and this
@@ -116,6 +116,14 @@ pub fn main(init: std.process.Init) !void {
 
     try out.writeAll("\n--- as GLSL 3.30 core ---\n\n");
     try printSource(out, if (wanted_vertex) module.glsl.vertex else module.glsl.fragment);
+
+    // Only the head, because the rest is the text above: the test suite holds
+    // the two GLSLs to being the same below it.
+    const es = if (wanted_vertex) module.glsl_es.vertex else module.glsl_es.fragment;
+    const es_head = shader.glsl.Dialect.es.header();
+    try out.writeAll("\n--- as GLSL ES 3.00, for WebGL 2 ---\n\n");
+    try printSource(out, std.mem.trimEnd(u8, es[0..es_head.len], "\n"));
+    try out.writeAll("\n    // ...and from here on, the GLSL above, line for line.\n");
 
     try out.writeAll("\n--- as HLSL, shader model 5.0 ---\n\n");
     try printSource(out, if (wanted_vertex) module.hlsl.vertex else module.hlsl.fragment);

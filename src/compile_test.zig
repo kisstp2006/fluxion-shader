@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSL-1.0
 
-//! One source in, two languages out, checked line by line.
+//! One source in, three languages out, checked line by line.
 //!
 //! The emitters have no tests of their own, because what they produce is only
 //! worth checking whole: a `mul` in the right place is not evidence unless
@@ -16,6 +16,7 @@ const testing = std.testing;
 
 const shader = @import("root.zig");
 const Module = shader.Module;
+const glsl = shader.glsl;
 
 /// Compile, or print what went wrong and fail.
 fn build(source: []const u8) !Module {
@@ -139,6 +140,85 @@ test "the sprite shader, as HLSL" {
     try expectContains(fragment, "return fluxion_target;");
     // A fragment shader takes the varyings; it has no input struct of its own.
     try expectMissing(fragment, "struct FluxionInput");
+}
+
+test "the sprite shader, as GLSL ES" {
+    var module = try build(sprites);
+    defer module.deinit();
+
+    for ([_][:0]const u8{ module.glsl_es.vertex, module.glsl_es.fragment }) |stage| {
+        // On the very first line. A WebGL 2 context compiles a shader
+        // without it as GLSL ES 1.00, and says `in` is not a word rather than
+        // that the version is missing.
+        try testing.expect(std.mem.startsWith(u8, stage, "#version 300 es\n"));
+        // One precision, in both stages: the block they both see has to be
+        // seen at one precision, or the program does not link.
+        try expectContains(stage, "precision highp float;");
+        try expectContains(stage, "precision highp int;");
+        try expectContains(stage, "precision highp sampler2D;");
+        try expectMissing(stage, "core");
+    }
+
+    // And from there on, the GLSL it always was.
+    try expectContains(module.glsl_es.vertex, "layout(location = 0) in vec2 corner;");
+    try expectContains(module.glsl_es.vertex, "layout(std140) uniform Frame {");
+    try expectContains(module.glsl_es.fragment, "out vec4 fluxion_target;");
+    try expectContains(module.glsl_es.fragment, "fluxion_target = (texture(atlas, uv) * colour);");
+}
+
+/// Everything the GLSL emitter writes, in one shader: a block, a texture, a
+/// constant, a function, both index builtins, a loop with a whole-number
+/// counter, both branches of an `if`, a ternary, a `discard`, and every
+/// function one of the languages spells its own way.
+const everything =
+    \\attribute vec2 corner : 0;
+    \\varying vec2 uv;
+    \\uniform Frame : 0 { mat4 projection; float time; }
+    \\texture2d atlas : 0;
+    \\const float wobble = 0.02;
+    \\
+    \\vec2 sway(vec2 at, float seconds) {
+    \\    return at + vec2(sin(seconds) * wobble, 0.0);
+    \\}
+    \\
+    \\vertex {
+    \\    float lane = float(vertex_index) + float(instance_index);
+    \\    uv = corner;
+    \\    position = projection * vec4(sway(corner, time + lane), 0.0, 1.0);
+    \\}
+    \\
+    \\fragment {
+    \\    float total = 0.0;
+    \\    for (int i = 0; i < 4; i += 1) { total += 0.25; }
+    \\    if (total > 0.9) { total = 1.0; } else { discard; }
+    \\    while (total < 0.0) { total += 1.0; }
+    \\    float edge = saturate(mod(time, 1.0)) + atan2(uv.y, uv.x) + inversesqrt(2.0);
+    \\    edge = edge + ddx(uv.x) + ddy(uv.y) + fract(total);
+    \\    vec4 texel = sample(atlas, uv);
+    \\    target = mix(texel, texel * vec4(edge), total > 0.5 ? 1.0 : 0.0);
+    \\}
+;
+
+/// Cut each header off and compare what is left, byte for byte.
+fn expectSameBody(core: []const u8, es: []const u8) !void {
+    const core_header = glsl.Dialect.core.header();
+    const es_header = glsl.Dialect.es.header();
+    try testing.expect(std.mem.startsWith(u8, core, core_header));
+    try testing.expect(std.mem.startsWith(u8, es, es_header));
+    try testing.expectEqualStrings(core[core_header.len..], es[es_header.len..]);
+}
+
+test "GLSL ES is GLSL 3.30 core under a different head" {
+    // The promise `glsl.Dialect` makes, held to: a change that made the two
+    // differ anywhere below the header - an implicit conversion, a feature
+    // one of them has not got - fails here rather than in somebody's
+    // browser.
+    for ([_][]const u8{ sprites, everything }) |source| {
+        var module = try build(source);
+        defer module.deinit();
+        try expectSameBody(module.glsl.vertex, module.glsl_es.vertex);
+        try expectSameBody(module.glsl.fragment, module.glsl_es.fragment);
+    }
 }
 
 test "what the shader said about itself" {
@@ -518,6 +598,21 @@ test "a name the emitter uses cannot be taken" {
     , "is a type");
 }
 
+test "a precision is not a name" {
+    // Keywords in both GLSLs, and written at the top of every ES stage - so
+    // a variable called one would be a driver's complaint about the header
+    // rather than this library's about the line that caused it.
+    for ([_][]const u8{ "lowp", "mediump", "highp" }) |word| {
+        var source: [128]u8 = undefined;
+        const text = try std.fmt.bufPrint(&source,
+            \\attribute vec2 {s} : 0;
+            \\vertex {{ position = vec4({s}, 0.0, 1.0); }}
+            \\fragment {{ target = vec4(1.0); }}
+        , .{ word, word });
+        try expectRefused(text, "means something to GLSL or to HLSL");
+    }
+}
+
 test "two things cannot share a slot, or a name" {
     try expectRefused(
         \\attribute vec2 a : 0;
@@ -594,5 +689,6 @@ test "the shader in the module comment compiles" {
     );
     defer module.deinit();
     try testing.expect(module.glsl.vertex.len > 0);
+    try testing.expect(module.glsl_es.vertex.len > 0);
     try testing.expect(module.hlsl.fragment.len > 0);
 }
