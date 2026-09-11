@@ -24,13 +24,13 @@
         // that is not the root never asks for its examples' dependencies - so
         // neither is ever fetched from inside the other.
         .fluxion_rhi = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-rhi#80a6040aa539b1c7aaa18f7f02d3b882f00fa2c5",
-            .hash = "fluxion_rhi-0.1.0--pvwD5ezBAB9N6g-a6xOo6mRfY53etFAHaPtn7aVx22S",
+            .url = "git+https://github.com/kisstp2006/fluxion-rhi#7c1df5db874d74c754e53cd93848b0cd3bdf4cd7",
+            .hash = "fluxion_rhi-0.1.0--pvwD_GzBAD2E4V-etlt_-GUfngq0Mhy6-L-B7NLd4uW",
             .lazy = true,
         },
         .fluxion_platform = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-platform#9ee5f1357cb6bc3e7b9b5323826e4e8957009e79",
-            .hash = "fluxion_platform-0.1.0-WsOjUWHDDwDCjU4rmewIqMFLVQEOj7pQ-NfBLPZ_5B9t",
+            .url = "git+https://github.com/kisstp2006/fluxion-platform#9f1074bad5a0065d9dec480d02ac04703933cf1c",
+            .hash = "fluxion_platform-0.1.0-WsOjUQfIDwCfGQbLE_BLrLcPicPcGadwyqYXABp9zB7r",
             .lazy = true,
         },
         .fluxion_image = .{
