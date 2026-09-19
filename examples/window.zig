@@ -141,6 +141,8 @@ pub const Window = struct {
                 // `Unsupported`, which is the truth.
                 .webgl => .webgl,
                 .vulkan => .vulkan,
+                // Made by `Device.initWith`; this glue knows no such backend.
+                .other => return error.Unsupported,
             },
             .gl = if (self.backend == .gl) self.hooks() else null,
             .debug = options.debug,
@@ -228,6 +230,8 @@ pub const TestDevice = struct {
             .webgl => return error.SkipZigTest,
             // No Vulkan backend exists yet.
             .vulkan => return error.SkipZigTest,
+            // A backend the caller supplies has no glue here.
+            .other => return error.SkipZigTest,
         }
     }
 
