@@ -23,6 +23,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const ast = @import("ast.zig");
+const builtins = @import("builtins.zig");
 const Diagnostics = @import("diag.zig");
 
 pub const Error = error{CheckFailed} || Allocator.Error;
@@ -229,10 +230,13 @@ fn declareGlobal(
 
 /// Where a field of a uniform block starts, and how big the block is.
 ///
-/// The rules `std140` and a Direct3D constant buffer agree on: a value is
-/// aligned to its own size, up to sixteen bytes, and the block is rounded up
-/// to sixteen. They agree because the language has nothing in a block that
-/// they disagree about - no arrays and no nested structs. See the README.
+/// The rules of `std140`: a value is aligned to its own size, up to sixteen
+/// bytes, a matrix is a register per column, and the block is rounded up to
+/// sixteen. That is what OpenGL, WebGL and Vulkan use. A Direct3D constant
+/// buffer packs some members differently - a `vec2` or `vec3` after a single
+/// scalar, a small value after a `mat2` or `mat3` - which this does not say and
+/// the HLSL emitter does not correct; see the README's account of the block
+/// layout.
 fn layOutBlock(
     self: *Sema,
     block: *ast.UniformBlock,
@@ -277,7 +281,7 @@ fn checkName(self: *Sema, text: []const u8, offset: u32) void {
         self.diagnostics.report(offset, "`{s}` is a type, so nothing may be called that", .{text});
         return;
     }
-    if (ast.Builtin.fromName(text) != null) {
+    if (builtins.find(text) != null) {
         self.diagnostics.report(offset, "`{s}` is a function this language brings with it", .{text});
         return;
     }
@@ -678,53 +682,6 @@ fn fieldExpr(self: *Sema, expr: *ast.Expr) Error!ast.Type {
 // Calls
 // -------------------------------------------------------------------------
 
-/// How a builtin's arguments and result go together.
-const Rule = enum {
-    /// Every argument is the same float or vector, or a bare float where the
-    /// others are vectors. The result is the widest of them. This is the
-    /// overload set GLSL spells out and HLSL promotes into.
-    componentwise,
-    /// Every argument is exactly the same float or vector; the result is it.
-    uniform_width,
-    /// Float or vector in, one float out.
-    reduce,
-    /// Two `vec3`s in, one out.
-    cross,
-    /// A texture and a `vec2` in, a `vec4` out.
-    sample,
-    /// A matrix in, the same one out.
-    matrix,
-};
-
-const Signature = struct {
-    min: u8,
-    max: u8,
-    rule: Rule,
-};
-
-fn signatureOf(builtin: ast.Builtin) Signature {
-    return switch (builtin) {
-        .sample => .{ .min = 2, .max = 2, .rule = .sample },
-
-        .abs, .floor, .ceil, .fract, .sqrt, .inversesqrt, .sin, .cos, .tan, .asin, .acos, .exp, .log, .exp2, .log2, .sign, .saturate, .ddx, .ddy => .{ .min = 1, .max = 1, .rule = .componentwise },
-        .normalize => .{ .min = 1, .max = 1, .rule = .uniform_width },
-        // One argument is an arc tangent; two is the one that knows which
-        // quadrant it is in.
-        .atan => .{ .min = 1, .max = 2, .rule = .uniform_width },
-        .atan2 => .{ .min = 2, .max = 2, .rule = .uniform_width },
-
-        .min, .max, .mod, .step => .{ .min = 2, .max = 2, .rule = .componentwise },
-        .pow, .reflect => .{ .min = 2, .max = 2, .rule = .uniform_width },
-
-        .clamp, .mix, .smoothstep => .{ .min = 3, .max = 3, .rule = .componentwise },
-
-        .length => .{ .min = 1, .max = 1, .rule = .reduce },
-        .distance, .dot => .{ .min = 2, .max = 2, .rule = .reduce },
-        .cross => .{ .min = 2, .max = 2, .rule = .cross },
-        .transpose => .{ .min = 1, .max = 1, .rule = .matrix },
-    };
-}
-
 fn callExpr(self: *Sema, expr: *ast.Expr) Error!ast.Type {
     const called = expr.kind.call;
 
@@ -745,37 +702,37 @@ fn callExpr(self: *Sema, expr: *ast.Expr) Error!ast.Type {
         return f.returns;
     }
 
-    const builtin = ast.Builtin.fromName(called.name) orelse {
+    const found = builtins.find(called.name) orelse {
         self.diagnostics.report(expr.offset, "nothing here is called `{s}`", .{called.name});
         for (called.args) |arg| _ = try self.expression(arg);
         return .void;
     };
-    expr.kind.call.target = .{ .builtin = builtin };
-    return self.builtinCall(expr, builtin);
+    expr.kind.call.target = .{ .builtin = found.builtin };
+    return self.builtinCall(expr, found);
 }
 
-fn builtinCall(self: *Sema, expr: *ast.Expr, builtin: ast.Builtin) Error!ast.Type {
+fn builtinCall(self: *Sema, expr: *ast.Expr, found: *const builtins.Row) Error!ast.Type {
     const args = expr.kind.call.args;
-    const signature = signatureOf(builtin);
+    const builtin = found.builtin;
 
     var types = try self.arena.alloc(ast.Type, args.len);
     for (args, types) |arg, *ty| ty.* = try self.expression(arg);
 
-    if (args.len < signature.min or args.len > signature.max) {
-        if (signature.min == signature.max) {
+    if (args.len < found.min_args or args.len > found.max_args) {
+        if (found.min_args == found.max_args) {
             self.diagnostics.report(expr.offset, "`{t}` takes {d} argument{s}, and this passes {d}", .{
-                builtin, signature.min, if (signature.min == 1) "" else "s", args.len,
+                builtin, found.min_args, if (found.min_args == 1) "" else "s", args.len,
             });
         } else {
             self.diagnostics.report(expr.offset, "`{t}` takes {d} or {d} arguments, and this passes {d}", .{
-                builtin, signature.min, signature.max, args.len,
+                builtin, found.min_args, found.max_args, args.len,
             });
         }
         return .void;
     }
     for (types) |ty| if (ty == .void) return .void;
 
-    switch (signature.rule) {
+    switch (found.typing) {
         .sample => {
             if (types[0] != .texture2d) {
                 self.diagnostics.report(args[0].offset, "`sample` reads a texture, and this is {s}", .{types[0].glsl()});
@@ -812,7 +769,7 @@ fn builtinCall(self: *Sema, expr: *ast.Expr, builtin: ast.Builtin) Error!ast.Typ
                 }
                 widest = ty;
             }
-            const wanted: ast.Type = switch (signature.rule) {
+            const wanted: ast.Type = switch (found.typing) {
                 // Only `componentwise` lets a bare float stand in among
                 // vectors; the others want every argument the same width.
                 .componentwise => .float,
@@ -822,7 +779,7 @@ fn builtinCall(self: *Sema, expr: *ast.Expr, builtin: ast.Builtin) Error!ast.Typ
                 if (ty == widest) continue;
                 if (!self.coerce(arg, wanted, ty, "an argument")) return .void;
             }
-            return if (signature.rule == .reduce) .float else widest;
+            return if (found.typing == .reduce) .float else widest;
         },
     }
 }
@@ -913,6 +870,12 @@ fn binaryResult(self: *Sema, op: ast.BinaryOp, lhs: ast.Type, rhs: ast.Type, off
             self.diagnostics.report(offset, "`{s}` compares two of the same, and these are {s} and {s}", .{ op.spelling(), lhs.glsl(), rhs.glsl() });
             return null;
         }
+        // Ordering is for numbers. Neither GLSL nor HLSL has a `<` on two
+        // bools, and SPIR-V has no instruction for one.
+        if (lhs == .bool and op != .equal and op != .not_equal) {
+            self.diagnostics.report(offset, "`{s}` orders numbers, and these are bools; `==` and `!=` are the ones for bools", .{op.spelling()});
+            return null;
+        }
         return .bool;
     }
 
@@ -955,6 +918,11 @@ fn binaryResult(self: *Sema, op: ast.BinaryOp, lhs: ast.Type, rhs: ast.Type, off
             return lhs;
         }
     }
+
+    // A whole number against a float is a float, whichever side it is on.
+    // Both languages convert it quietly; what the result is called is not
+    // up to whichever operand happened to come first.
+    if (lhs == .int and rhs == .float) return .float;
 
     // Anything else against a lone number is that thing, componentwise.
     if (rhs == .float or rhs == .int) return lhs;

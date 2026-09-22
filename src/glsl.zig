@@ -36,6 +36,7 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const sema = @import("sema.zig");
+const builtins = @import("builtins.zig");
 
 const Emitter = struct {
     program: *const ast.Program,
@@ -307,7 +308,7 @@ fn expression(self: *Emitter, expr: *const ast.Expr) Emitter.Error!void {
             try expression(self, f.base);
             try self.w.print(".{s}", .{f.name});
         },
-        .call => |called| try callExpr(self, expr, called),
+        .call => |called| try callExpr(self, called),
         .unary => |unary| {
             try self.w.writeByte('(');
             try self.w.writeAll(switch (unary.op) {
@@ -357,7 +358,7 @@ fn name(self: *Emitter, named: ast.Expr.Name) Emitter.Error!void {
     }
 }
 
-fn callExpr(self: *Emitter, expr: *const ast.Expr, called: ast.Expr.Call) Emitter.Error!void {
+fn callExpr(self: *Emitter, called: ast.Expr.Call) Emitter.Error!void {
     switch (called.target) {
         .construct => |ty| {
             try self.w.print("{s}(", .{ty.glsl()});
@@ -369,7 +370,7 @@ fn callExpr(self: *Emitter, expr: *const ast.Expr, called: ast.Expr.Call) Emitte
             try arguments(self, called.args);
             try self.w.writeByte(')');
         },
-        .builtin => |which| try builtinCall(self, expr, which, called.args),
+        .builtin => |which| try builtinCall(self, which, called.args),
     }
 }
 
@@ -380,29 +381,9 @@ fn arguments(self: *Emitter, args: []const *ast.Expr) Emitter.Error!void {
     }
 }
 
-fn builtinCall(self: *Emitter, expr: *const ast.Expr, which: ast.Builtin, args: []const *ast.Expr) Emitter.Error!void {
-    switch (which) {
-        // `saturate` is HLSL's, and this is what it means.
-        .saturate => {
-            try self.w.writeAll("clamp(");
-            try expression(self, args[0]);
-            try self.w.writeAll(", 0.0, 1.0)");
-            return;
-        },
-        else => {},
-    }
-
-    const spelling: []const u8 = switch (which) {
-        .sample => "texture",
-        .ddx => "dFdx",
-        .ddy => "dFdy",
-        // GLSL spells both arities `atan`.
-        .atan2 => "atan",
-        else => @tagName(which),
-    };
-    _ = expr;
-
-    try self.w.print("{s}(", .{spelling});
-    try arguments(self, args);
-    try self.w.writeByte(')');
+/// A builtin is written the way its row says GLSL spells it. There is no
+/// `switch` on which builtin it is: see `builtins.table`.
+fn builtinCall(self: *Emitter, which: ast.Builtin, args: []const *ast.Expr) Emitter.Error!void {
+    const found = builtins.row(which);
+    try builtins.writeCall(self.w, found.glsl, found.name, args, self, expression);
 }

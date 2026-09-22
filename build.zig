@@ -96,6 +96,11 @@ pub fn build(b: *std.Build) void {
     }{
         .{ .name = "demo", .step = "example", .about = "One shader in, two languages out" },
         .{
+            .name = "spirv",
+            .step = "example-spirv",
+            .about = "The same shader as SPIR-V, written to zig-out/ for spirv-dis",
+        },
+        .{
             .name = "quad",
             .step = "example-quad",
             .about = "The compiled shader, drawn on whichever backend is asked for",

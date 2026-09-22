@@ -143,8 +143,8 @@ pub const Type = enum {
         };
     }
 
-    /// Bytes this occupies in a uniform block, under the rules `std140` and
-    /// Direct3D's constant buffers agree on. See `alignmentInBlock`.
+    /// Bytes this occupies in a uniform block, under `std140`. See
+    /// `alignmentInBlock`.
     pub fn sizeInBlock(self: Type) u32 {
         return switch (self) {
             .bool, .int, .float => 4,
@@ -161,10 +161,16 @@ pub const Type = enum {
 
     /// What a field of this type has to start on.
     ///
-    /// `std140` rounds a `vec3` up to sixteen and so does Direct3D, which
-    /// packs into four-float registers and will not let a value straddle one.
-    /// That is why the two layouts agree for everything this language can put
-    /// in a block.
+    /// `std140` rounds a `vec3` up to sixteen, a `vec2` to eight, and a matrix
+    /// to a register per column.
+    ///
+    /// Direct3D's constant buffer does not say the same for every member: it
+    /// packs into four-float registers, starting a value at the next four
+    /// bytes where it will not straddle one, so a `vec2` or `vec3` after a
+    /// single scalar starts at 4, and a small value after a `mat2` or a
+    /// `mat3` goes into the free part of the matrix's last register. The two
+    /// agree wherever a member starts a register anyway; see the README's
+    /// account of the block layout.
     pub fn alignmentInBlock(self: Type) u32 {
         return switch (self) {
             .bool, .int, .float => 4,
@@ -469,8 +475,9 @@ pub const Varying = struct {
 pub const BlockField = struct {
     name: []const u8,
     ty: Type,
-    /// Bytes from the start of the block. Worked out by `sema`, and the same
-    /// number under `std140` and Direct3D.
+    /// Bytes from the start of the block. Worked out by `sema`, under
+    /// `std140`: what OpenGL, WebGL and Vulkan use, and not always what a
+    /// Direct3D constant buffer does - see `Type.alignmentInBlock`.
     byte_offset: u32 = 0,
     offset: u32,
 };

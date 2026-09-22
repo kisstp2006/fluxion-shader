@@ -15,17 +15,28 @@ const std = @import("std");
 const testing = std.testing;
 
 const shader = @import("root.zig");
+const toolchain = @import("toolchain.zig");
 const Module = shader.Module;
 const glsl = shader.glsl;
 
 /// Compile, or print what went wrong and fail.
+///
+/// Every shader this file compiles is also held to the SPIR-V target and to
+/// whichever validators are installed (`toolchain.zig`): the same source, the
+/// same tree, asked of the two things that read what is written - `spirv-val`
+/// for the words, and `dxc` for the HLSL. A shader is asked about once
+/// however many tests build it, and on a machine with none of the tools this
+/// is the structural check and nothing more.
 fn build(source: []const u8) !Module {
     var log: std.Io.Writer.Allocating = .init(testing.allocator);
     defer log.deinit();
-    return shader.compile(testing.allocator, source, &log.writer) catch |err| {
+    var module = shader.compile(testing.allocator, source, &log.writer) catch |err| {
         std.debug.print("\n{s}\n", .{log.written()});
         return err;
     };
+    errdefer module.deinit();
+    try toolchain.checkShader(testing.allocator, "a shader compile_test.zig builds", source, true, .{});
+    return module;
 }
 
 /// Compile something that should not, and check what it complained about.
@@ -118,7 +129,7 @@ test "the sprite shader, as HLSL" {
 
     const vertex = module.hlsl.vertex;
     try expectContains(vertex, "cbuffer Frame : register(b0) {");
-    try expectContains(vertex, "    float4x4 projection;");
+    try expectContains(vertex, "    float4x4 projection : packoffset(c0.x);");
     try expectContains(vertex, "Texture2D atlas : register(t0);");
     try expectContains(vertex, "SamplerState atlas_sampler : register(s0);");
     try expectContains(vertex, "struct FluxionInput {");
@@ -272,6 +283,13 @@ test "a block's fields are laid out where both APIs put them" {
     try testing.expectEqual(@as(?u32, 80), frame.offsetOf("offset"));
     // And the whole block is a multiple of sixteen.
     try testing.expectEqual(@as(u32, 96), frame.size);
+
+    // The HLSL target pins the same offsets instead of letting Direct3D pack
+    // a vec3 or a matrix gap differently from std140.
+    try expectContains(module.hlsl.vertex, "float3 direction : packoffset(c0.x);");
+    try expectContains(module.hlsl.vertex, "float strength : packoffset(c0.w);");
+    try expectContains(module.hlsl.vertex, "float4x4 projection : packoffset(c1.x);");
+    try expectContains(module.hlsl.vertex, "float2 offset : packoffset(c5.x);");
 }
 
 test "a vector filled from one scalar is a cast in HLSL" {

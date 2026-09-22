@@ -34,6 +34,7 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const sema = @import("sema.zig");
+const builtins = @import("builtins.zig");
 
 /// What the emitter calls the things a shader author cannot: `sema` refuses
 /// any name beginning `fluxion`, so none of these can be taken.
@@ -70,7 +71,19 @@ pub fn emit(
     for (program.blocks) |b| {
         try w.print("cbuffer {s} : register(b{d}) {{\n", .{ b.name, b.slot });
         for (b.fields) |field| {
-            try w.print("    {s} {s};\n", .{ field.ty.hlsl(), field.name });
+            // `std140` is the layout the reflection and the Vulkan target
+            // promise. D3D packs some members into a register differently,
+            // so state the byte offset explicitly rather than letting DXC
+            // choose it.
+            const register = field.byte_offset / 16;
+            const component = switch (field.byte_offset % 16) {
+                0 => "x",
+                4 => "y",
+                8 => "z",
+                12 => "w",
+                else => unreachable, // `sema` lays every field on a scalar.
+            };
+            try w.print("    {s} {s} : packoffset(c{d}.{s});\n", .{ field.ty.hlsl(), field.name, register, component });
         }
         try w.writeAll("};\n\n");
     }
@@ -413,46 +426,12 @@ fn arguments(self: *Emitter, args: []const *ast.Expr) Emitter.Error!void {
     }
 }
 
+/// A builtin is written the way its row says HLSL spells it: a name, a name
+/// that depends on how many arguments there are, or a template - which is
+/// how `sample` (a method on the texture, with its sampler beside it) and
+/// `mod` (GLSL's definition written down, see the module comment) get out.
+/// There is no `switch` on which builtin it is: see `builtins.table`.
 fn builtinCall(self: *Emitter, which: ast.Builtin, args: []const *ast.Expr) Emitter.Error!void {
-    switch (which) {
-        // A texture and its sampler are two objects in Direct3D, and the
-        // sampler's name is the texture's with a suffix - which is why a
-        // texture may only ever be a global here.
-        .sample => {
-            try expression(self, args[0]);
-            try self.w.writeAll(".Sample(");
-            try expression(self, args[0]);
-            try self.w.writeAll("_sampler, ");
-            try expression(self, args[1]);
-            try self.w.writeByte(')');
-            return;
-        },
-        // GLSL's `mod`, written out. See the module comment.
-        .mod => {
-            try self.w.writeAll("((");
-            try expression(self, args[0]);
-            try self.w.writeAll(") - (");
-            try expression(self, args[1]);
-            try self.w.writeAll(") * floor((");
-            try expression(self, args[0]);
-            try self.w.writeAll(") / (");
-            try expression(self, args[1]);
-            try self.w.writeAll(")))");
-            return;
-        },
-        else => {},
-    }
-
-    const spelling: []const u8 = switch (which) {
-        .fract => "frac",
-        .mix => "lerp",
-        .inversesqrt => "rsqrt",
-        // One argument is `atan`; two is `atan2`.
-        .atan => if (args.len == 2) "atan2" else "atan",
-        else => @tagName(which),
-    };
-
-    try self.w.print("{s}(", .{spelling});
-    try arguments(self, args);
-    try self.w.writeByte(')');
+    const found = builtins.row(which);
+    try builtins.writeCall(self.w, found.hlsl, found.name, args, self, expression);
 }

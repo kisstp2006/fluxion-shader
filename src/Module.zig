@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: BSL-1.0
 
-//! What comes out: six sources, and what a program has to know to bind them.
+//! What comes out: what every target wrote, and what a program has to know to
+//! bind it.
 //!
-//! The three languages, two stages each, in the shape
+//! The three text languages, two stages each, in the shape
 //! [Fluxion RHI](https://github.com/kisstp2006/fluxion-rhi) takes them - and
 //! beside them the numbers a pipeline is described with, so that a location,
 //! a slot and a name are written down once, in the shader, and read back from
@@ -19,10 +20,25 @@
 //! });
 //! ```
 //!
+//! **`glsl`, `glsl_es` and `hlsl` are three of the rows of `output`.** The
+//! targets are a table (see `target`), and what each one wrote is in
+//! `outputs` at the position of its id; `output(id)` reads it, as text or as
+//! binary words. The three fields are there because every caller wants those
+//! three and should not have to ask for them by id. A target that was not asked
+//! for leaves its field empty and its output `.none`.
+//!
+//! ```zig
+//! var module = try shader.compileWith(gpa, source, &log, .{
+//!     .targets = .of(&.{ .glsl_330, .spirv_vulkan }),
+//! });
+//! const spv = module.output(.spirv_vulkan).words; // .vertex and .fragment, []const u32
+//! ```
+//!
 //! Everything in here is owned by the module and dies with `deinit`.
 
 const std = @import("std");
 const ast = @import("ast.zig");
+const target = @import("target.zig");
 
 const Module = @This();
 
@@ -31,6 +47,31 @@ const Module = @This();
 pub const Sources = struct {
     vertex: [:0]const u8,
     fragment: [:0]const u8,
+};
+
+/// One binary target's two stages: SPIR-V, or whatever a words emitter makes.
+pub const Words = struct {
+    vertex: []const u32,
+    fragment: []const u32,
+
+    /// The vertex stage as the bytes a driver's create-shader call takes.
+    /// The slice is four-byte aligned, which `vkCreateShaderModule` needs and
+    /// a cast from `[]u8` would not promise.
+    pub fn vertexBytes(self: Words) []align(4) const u8 {
+        return std.mem.sliceAsBytes(self.vertex);
+    }
+
+    pub fn fragmentBytes(self: Words) []align(4) const u8 {
+        return std.mem.sliceAsBytes(self.fragment);
+    }
+};
+
+/// What one target produced.
+pub const Output = union(enum) {
+    /// The target was not asked for, or the id is not a row of the table.
+    none,
+    text: Sources,
+    words: Words,
 };
 
 pub const Attribute = struct {
@@ -43,8 +84,10 @@ pub const Attribute = struct {
 pub const Field = struct {
     name: []const u8,
     ty: ast.Type,
-    /// Bytes from the start of the block. The same number under `std140` and
-    /// in a Direct3D constant buffer.
+    /// Bytes from the start of the block, under `std140`: what OpenGL, WebGL
+    /// and Vulkan (in the SPIR-V's `Offset` decorations) use. A Direct3D
+    /// constant buffer agrees except where it packs into a register - see the
+    /// README's account of the block layout.
     offset: u32,
 };
 
@@ -74,13 +117,22 @@ pub const Texture = struct {
 };
 
 arena: std.heap.ArenaAllocator,
-/// GLSL 3.30 core, for desktop OpenGL.
+/// GLSL 3.30 core, for desktop OpenGL. Empty when `target.Id.glsl_330` was
+/// not asked for.
 glsl: Sources,
 /// GLSL ES 3.00, for WebGL 2. The same text as `glsl` under a different
 /// first few lines - see `glsl.Dialect`.
 glsl_es: Sources,
-/// HLSL for shader model 5.0, for Direct3D 11.
+/// HLSL for shader model 5.0, for Direct3D 11 - and, unchanged, the input the
+/// Direct3D 12 toolchain compiles to DXBC or DXIL.
 hlsl: Sources,
+/// What every target of the table wrote, at the position of its id. Read it
+/// with `output`.
+outputs: []const Output,
+/// Where the SPIR-V target put uniform blocks and textures, so that a
+/// pipeline layout can be made from the same numbers the shader was written
+/// with. See `target.BindingLayout`.
+binding: target.BindingLayout = .{},
 /// In the order they were declared, which is not the order of their
 /// locations.
 attributes: []const Attribute,
@@ -94,6 +146,17 @@ texture_names: ?[]const [:0]const u8 = null,
 pub fn deinit(self: *Module) void {
     self.arena.deinit();
     self.* = undefined;
+}
+
+/// What the target with this id wrote, or `.none` if it was not asked for.
+///
+/// ```zig
+/// const vertex_words = module.output(.spirv_vulkan).words.vertex;
+/// ```
+pub fn output(self: *const Module, id: target.Id) Output {
+    const index = @intFromEnum(id);
+    if (index >= self.outputs.len) return .none;
+    return self.outputs[index];
 }
 
 /// The block bound to `slot`, or null.
