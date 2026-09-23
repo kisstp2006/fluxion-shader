@@ -136,6 +136,7 @@ pub const Window = struct {
             .backend = switch (self.backend) {
                 .gl => .gl,
                 .d3d11 => .d3d11,
+                .d3d12 => .d3d12,
                 .none => .none,
                 // A browser's, and this is a desktop window: `Device` says
                 // `Unsupported`, which is the truth.
@@ -230,6 +231,8 @@ pub const TestDevice = struct {
             .webgl => return error.SkipZigTest,
             // No Vulkan backend exists yet.
             .vulkan => return error.SkipZigTest,
+            // No Direct3D 12 backend exists yet.
+            .d3d12 => return error.SkipZigTest,
             // A backend the caller supplies has no glue here.
             .other => return error.SkipZigTest,
         }
