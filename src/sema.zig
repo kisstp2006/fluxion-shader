@@ -343,6 +343,12 @@ const reserved = std.StaticStringMap(void).initComptime(.{
     // The precisions GLSL ES writes before a type, and which the ES output
     // declares at the top of every stage.
     .{"lowp"},        .{"mediump"},      .{"highp"},
+    // HLSL's primitive types, a geometry shader's words, which it refuses as
+    // a name anywhere: `float line = ...` is a syntax error to `fxc`.
+    .{"point"},       .{"line"},         .{"triangle"},    .{"lineadj"},         .{"triangleadj"},
+    // And the words of both that an author reaches for as a name.
+    .{"pass"},        .{"compile"},      .{"shared"},      .{"flat"},            .{"smooth"},
+    .{"buffer"},      .{"packoffset"},
 });
 
 fn checkName(self: *Sema, text: []const u8, offset: u32) void {

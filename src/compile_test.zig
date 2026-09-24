@@ -614,6 +614,11 @@ test "a name the emitter uses cannot be taken" {
         \\vertex { position = vec4(1.0); }
         \\fragment { target = vec4(1.0); }
     , "is a type");
+    // A local too: HLSL's `line` is a primitive's name, and `fxc` stops at it.
+    try expectRefused(
+        \\vertex { position = vec4(1.0); }
+        \\fragment { float line = 0.5; target = vec4(line); }
+    , "means something to GLSL or to HLSL");
 }
 
 test "a precision is not a name" {

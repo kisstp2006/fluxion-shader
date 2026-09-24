@@ -436,7 +436,8 @@ without them:
 - **A varying the vertex stage never writes.** The fragment stage would read
   whatever was in the register.
 - **A name the emitter uses, or one either language reserves.** `input`,
-  `sample`, `linear`, `highp`, anything starting `gl_` or `fluxion`.
+  `sample`, `linear`, `highp`, HLSL's primitive words - `line`, `point`,
+  `triangle` - anything starting `gl_` or `fluxion`.
 
 And two that SPIR-V needed the checker to say, because nothing else could
 lower them: `<` and its kin are for numbers and not bools, and a whole number
