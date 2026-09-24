@@ -146,6 +146,7 @@ the crossing taken out, and the stage boundaries made explicit.
 | `attribute vec2 corner : 0;` | A vertex input at location 0. `layout(location = 0)` there, `ATTR0` in HLSL, `Location 0` in SPIR-V. |
 | `varying vec2 uv;` | Written by the vertex stage, read by the fragment stage. |
 | `uniform Frame : 0 { mat4 projection; }` | A uniform block at slot 0. Its fields are in scope by name, as they are in every target. |
+| `uniform Look : 1 { float strength = 0.5; }` | A field with a first value, written in numbers: a number, a negated one, or a vector made of them (`vec4(1.0)`). Not emitted - a block has nowhere to keep it - but handed back as `Field.default`, for the program filling the buffer to start from. |
 | `texture2d atlas : 0;` | A texture at slot 0, and the sampler that goes with it. |
 | `const float pi = 3.14159;` | A compile-time constant. |
 | `vec2 scale(vec2 v, float s) { … }` | A function. |
@@ -416,25 +417,13 @@ these numbers - and a program can check it against the struct it uploads:
 try testing.expectEqual(@as(?u32, @offsetOf(Frame, "time")), frame.offsetOf("time"));
 ```
 
-**A Direct3D constant buffer is not `std140`, and this is the one place the
-targets disagree about where a member is.** It puts a member at the next four
-bytes where it does not cross a sixteen-byte register, and it gives a matrix a
-register per column but leaves the rest of the last one free. So a `vec2` or a
-`vec3` after a single scalar goes at 4 (`{ float a; vec3 b; }` has `b` at 4 in
-Direct3D and at 16 in `std140`), and a `float` after a `mat3`, or a `float` or a
-`vec2` after a `mat2`, goes into the gap (at `+ 44` and `+ 24`, where `std140` says
-`+ 48` and `+ 32`); whatever comes after those may move with them. Everything
-else - every member that starts a register anyway, every `vec4` and `mat4`, a
-`vec3` and then a `float` - is the same number in both.
-
-The HLSL this library writes does not say where a member is, so on Direct3D it
-gets Direct3D's answer. `packoffset(c1.x)` says it, `dxc` honours it and gives
-`std140`'s offset for every case above, and emitting one for each field is the
-fix; it was not made here, because the text the HLSL emitter writes is pinned.
-Until it is, `offsetOf` is right for OpenGL, WebGL and Vulkan and, on Direct3D,
-for blocks without those patterns. A test (`the Direct3D constant buffer agrees
-with std140 except where it packs into a register`) lists exactly which members
-of a set of blocks move, and is the one to empty when the emitter learns it.
+**A Direct3D constant buffer is not `std140` on its own.** It puts a member at
+the next four bytes where it does not cross a sixteen-byte register, and it
+gives a matrix a register per column but leaves the rest of the last one free:
+left to itself it would put `b` of `{ float a; vec3 b; }` at 4, where `std140`
+says 16. So the HLSL this library writes says where every member is -
+`float3 direction : packoffset(c0.x);` - with `std140`'s offset, and `offsetOf`
+is the same number on every backend.
 
 ## What it refuses
 
@@ -490,9 +479,6 @@ discarding), which `corpus.zig` marks and holds to SPIR-V instead.
 Found by asking the readers above rather than by reading the code, and not
 changed here, because the text the existing emitters write is pinned:
 
-- Uniform block offsets are `std140`'s, and Direct3D packs a `vec2` or `vec3` after
-  one scalar, and a small member after a `mat2` or `mat3`, differently. See
-  [the block layout](#the-block-layout).
 - An `int` varying is not `flat` in GLSL, and GLSL says it must be. (SPIR-V's
   is.)
 - GLSL ES 3.00 has no implicit conversion from `int`, and the text emitters leave

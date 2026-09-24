@@ -311,6 +311,7 @@ fn blocksOf(keep: Allocator, program: *const ast.Program) Allocator.Error![]cons
                 .name = try keep.dupe(u8, field.name),
                 .ty = field.ty,
                 .offset = field.byte_offset,
+                .default = if (field.default != null) try keep.dupe(f32, field.default_values) else null,
             };
         }
         entry.* = .{

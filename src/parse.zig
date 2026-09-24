@@ -171,7 +171,7 @@ fn varying(self: *Parser) Error!ast.Varying {
     return .{ .name = name.bytes, .ty = ty, .offset = keyword.offset };
 }
 
-/// `uniform Frame : 0 { mat4 projection; }`
+/// `uniform Frame : 0 { mat4 projection; float time = 0.0; }`
 fn uniformBlock(self: *Parser) Error!ast.UniformBlock {
     const keyword = self.advance();
     const name = try self.expect(.identifier);
@@ -185,8 +185,9 @@ fn uniformBlock(self: *Parser) Error!ast.UniformBlock {
         const at = self.peek().offset;
         const ty = try self.typeName();
         const field = try self.expect(.identifier);
+        const default: ?*ast.Expr = if (self.eat(.equal)) try self.expression() else null;
         _ = try self.expect(.semicolon);
-        try fields.append(self.arena, .{ .name = field.bytes, .ty = ty, .offset = at });
+        try fields.append(self.arena, .{ .name = field.bytes, .ty = ty, .offset = at, .default = default });
     }
     _ = try self.expect(.r_brace);
 

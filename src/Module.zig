@@ -85,10 +85,13 @@ pub const Field = struct {
     name: []const u8,
     ty: ast.Type,
     /// Bytes from the start of the block, under `std140`: what OpenGL, WebGL
-    /// and Vulkan (in the SPIR-V's `Offset` decorations) use. A Direct3D
-    /// constant buffer agrees except where it packs into a register - see the
-    /// README's account of the block layout.
+    /// and Vulkan (in the SPIR-V's `Offset` decorations) use, and what the
+    /// HLSL says of each member with a `packoffset`.
     offset: u32,
+    /// What the shader says the field holds until the program says otherwise
+    /// - `float strength = 0.5;` - one float per component, or null when it
+    /// says nothing. Only numbers are written there, so this is all of it.
+    default: ?[]const f32 = null,
 };
 
 pub const Block = struct {

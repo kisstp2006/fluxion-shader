@@ -232,11 +232,8 @@ fn declareGlobal(
 ///
 /// The rules of `std140`: a value is aligned to its own size, up to sixteen
 /// bytes, a matrix is a register per column, and the block is rounded up to
-/// sixteen. That is what OpenGL, WebGL and Vulkan use. A Direct3D constant
-/// buffer packs some members differently - a `vec2` or `vec3` after a single
-/// scalar, a small value after a `mat2` or `mat3` - which this does not say and
-/// the HLSL emitter does not correct; see the README's account of the block
-/// layout.
+/// sixteen. That is what OpenGL, WebGL and Vulkan use, and the HLSL emitter
+/// pins every member of a Direct3D constant buffer to the same offset.
 fn layOutBlock(
     self: *Sema,
     block: *ast.UniformBlock,
@@ -253,8 +250,80 @@ fn layOutBlock(
         offset = std.mem.alignForward(u32, offset, alignment);
         field.byte_offset = offset;
         offset += field.ty.sizeInBlock();
+        if (field.default) |written| try self.defaultOf(field, written);
     }
     block.size = std.mem.alignForward(u32, offset, 16);
+}
+
+/// Work out a field's first value, which is written in numbers: a number, a
+/// number negated, or a vector made of them - `vec4(1.0)`, `vec2(0.5, -1)`.
+/// Nothing a shader computes, because nothing runs to compute it: the numbers
+/// go to the program filling the buffer, not to a GPU.
+fn defaultOf(self: *Sema, field: *ast.BlockField, written: *const ast.Expr) Allocator.Error!void {
+    if (field.ty.isMatrix()) {
+        self.diagnostics.report(written.offset, "a matrix field has no first value: there is no matrix literal to write it with", .{});
+        return;
+    }
+    var values: [16]f32 = undefined;
+    const got = literal(written, &values) orelse {
+        self.diagnostics.report(written.offset, "a field's first value is written in numbers - a {s} of them - and nothing else", .{field.ty.glsl()});
+        return;
+    };
+    const fits = switch (field.ty) {
+        .float => got.ty == .float or got.ty == .int,
+        .int => got.ty == .int,
+        else => got.ty == field.ty,
+    };
+    if (!fits) {
+        self.diagnostics.report(written.offset, "this is {s}, and the field is {s}", .{ got.ty.glsl(), field.ty.glsl() });
+        return;
+    }
+    field.default_values = try self.arena.dupe(f32, values[0..got.len]);
+}
+
+/// What a value written in numbers is, and how many floats it came to.
+const Literal = struct { ty: ast.Type, len: u32 };
+
+/// The floats `expr` comes to, into `out`, or null when it is anything but
+/// numbers: a number, a negated one, or a vector's constructor of them,
+/// one argument filling every component.
+fn literal(expr: *const ast.Expr, out: *[16]f32) ?Literal {
+    switch (expr.kind) {
+        .number => |number| {
+            out[0] = std.fmt.parseFloat(f32, number.bytes) catch return null;
+            return .{ .ty = if (number.is_float) .float else .int, .len = 1 };
+        },
+        .unary => |unary| {
+            if (unary.op != .negate) return null;
+            const got = literal(unary.operand, out) orelse return null;
+            for (out[0..got.len]) |*value| value.* = -value.*;
+            return got;
+        },
+        .call => |call| {
+            const ty = ast.Type.fromName(call.name) orelse return null;
+            switch (ty) {
+                .int, .float, .vec2, .vec3, .vec4 => {},
+                else => return null,
+            }
+            var given: [16]f32 = undefined;
+            var count: u32 = 0;
+            for (call.args) |arg| {
+                var one: [16]f32 = undefined;
+                const got = literal(arg, &one) orelse return null;
+                if (count + got.len > given.len) return null;
+                @memcpy(given[count..][0..got.len], one[0..got.len]);
+                count += got.len;
+            }
+            const width = ty.components();
+            if (count == 1) {
+                @memset(out[0..width], given[0]);
+            } else if (count == width) {
+                @memcpy(out[0..width], given[0..width]);
+            } else return null;
+            return .{ .ty = ty, .len = width };
+        },
+        else => return null,
+    }
 }
 
 /// Names that would come out of the emitter as something the driver already

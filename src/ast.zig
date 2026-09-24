@@ -480,6 +480,14 @@ pub const BlockField = struct {
     /// Direct3D constant buffer does - see `Type.alignmentInBlock`.
     byte_offset: u32 = 0,
     offset: u32,
+    /// What the field holds until a program says otherwise, as written:
+    /// `float strength = 0.5;`. Never emitted - a block in GLSL or HLSL has
+    /// nowhere to keep it - but handed back, so the program that fills the
+    /// buffer can start from it.
+    default: ?*Expr = null,
+    /// `default` worked out by `sema`, one float per component. Empty for a
+    /// field with none.
+    default_values: []const f32 = &.{},
 };
 
 pub const UniformBlock = struct {

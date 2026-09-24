@@ -710,3 +710,55 @@ test "the shader in the module comment compiles" {
     try testing.expect(module.glsl_es.vertex.len > 0);
     try testing.expect(module.hlsl.fragment.len > 0);
 }
+
+test "a field says what it holds until the program says otherwise" {
+    var module = try build(
+        \\uniform Look : 0 {
+        \\    float strength = 0.5;
+        \\    int steps = 3;
+        \\    vec2 offset = vec2(-1, 2.5);
+        \\    vec4 tint = vec4(1.0);
+        \\    float spare = -2;
+        \\    mat4 projection;
+        \\}
+        \\vertex { position = projection * vec4(offset, float(steps), strength + spare); }
+        \\fragment { target = tint; }
+    );
+    defer module.deinit();
+
+    const look = module.blocks[0];
+    try testing.expectEqualSlices(f32, &.{0.5}, look.fields[0].default.?);
+    try testing.expectEqualSlices(f32, &.{3}, look.fields[1].default.?);
+    try testing.expectEqualSlices(f32, &.{ -1, 2.5 }, look.fields[2].default.?);
+    // One number fills the vector, as it does in a shader.
+    try testing.expectEqualSlices(f32, &.{ 1, 1, 1, 1 }, look.fields[3].default.?);
+    try testing.expectEqualSlices(f32, &.{-2}, look.fields[4].default.?);
+    try testing.expectEqual(@as(?[]const f32, null), look.fields[5].default);
+
+    // Nothing of it is written out: a block has nowhere to keep it.
+    try testing.expect(std.mem.indexOf(u8, module.glsl.vertex, "0.5") == null);
+    try testing.expect(std.mem.indexOf(u8, module.hlsl.fragment, "0.5") == null);
+}
+
+test "a field's first value is numbers of its own type" {
+    try expectRefused(
+        \\uniform Look : 0 { float strength = sin(1.0); }
+        \\vertex { position = vec4(strength); }
+        \\fragment { target = vec4(1.0); }
+    , "written in numbers - a float of them");
+    try expectRefused(
+        \\uniform Look : 0 { vec3 tint = vec4(1.0); }
+        \\vertex { position = vec4(tint, 1.0); }
+        \\fragment { target = vec4(1.0); }
+    , "this is vec4, and the field is vec3");
+    try expectRefused(
+        \\uniform Look : 0 { vec3 tint = vec3(1.0, 2.0); }
+        \\vertex { position = vec4(tint, 1.0); }
+        \\fragment { target = vec4(1.0); }
+    , "written in numbers - a vec3 of them");
+    try expectRefused(
+        \\uniform Look : 0 { mat4 m = 1.0; }
+        \\vertex { position = m * vec4(1.0); }
+        \\fragment { target = vec4(1.0); }
+    , "a matrix field has no first value");
+}
