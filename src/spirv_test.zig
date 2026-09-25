@@ -525,8 +525,9 @@ test "a constant made of constants is one constant" {
 // -------------------------------------------------------------------------
 
 fn expectUnsupported(source: []const u8, wanted: []const u8) !void {
-    // The text targets are fine with it: only SPIR-V objects.
-    var text = try compileSpirv(source, .{});
+    // The text targets are fine with it: only SPIR-V objects - and so does
+    // `compile`, which writes SPIR-V too.
+    var text = try compileSpirv(source, .{ .targets = .text_targets });
     text.deinit();
 
     var log: std.Io.Writer.Allocating = .init(testing.allocator);
@@ -628,7 +629,7 @@ test "two bools are compared for equality and not for order" {
 // The table of targets
 // -------------------------------------------------------------------------
 
-test "compile writes the three text targets and no SPIR-V, and asking for SPIR-V alone writes only that" {
+test "compile writes every target, SPIR-V too, and asking for SPIR-V alone writes only that" {
     var log: std.Io.Writer.Allocating = .init(testing.allocator);
     defer log.deinit();
 
@@ -636,11 +637,18 @@ test "compile writes the three text targets and no SPIR-V, and asking for SPIR-V
     defer text.deinit();
     try testing.expect(text.glsl.vertex.len > 0);
     try testing.expect(text.hlsl.fragment.len > 0);
-    try testing.expectEqual(std.meta.Tag(shader.Output).none, std.meta.activeTag(text.output(.spirv_vulkan)));
-    // The fields are three of the table's rows.
+    try testing.expect(text.spirv.vertex.len > 5);
+    // The fields are four of the table's rows.
     try testing.expectEqualStrings(text.glsl.vertex, text.output(.glsl_330).text.vertex);
     try testing.expectEqualStrings(text.glsl_es.fragment, text.output(.glsl_es_300).text.fragment);
     try testing.expectEqualStrings(text.hlsl.vertex, text.output(.hlsl_50).text.vertex);
+    try testing.expectEqualSlices(u32, text.spirv.fragment, text.output(.spirv_vulkan).words.fragment);
+
+    // Only the text ones, when that is what is asked for.
+    var only_text = try shader.compileWith(testing.allocator, corpus.sprites, &log.writer, .{ .targets = .text_targets });
+    defer only_text.deinit();
+    try testing.expectEqual(std.meta.Tag(shader.Output).none, std.meta.activeTag(only_text.output(.spirv_vulkan)));
+    try testing.expectEqual(@as(usize, 0), only_text.spirv.vertex.len);
 
     var binary = try shader.compileWith(testing.allocator, corpus.sprites, &log.writer, spirv_only);
     defer binary.deinit();

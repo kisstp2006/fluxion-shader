@@ -3,11 +3,12 @@
 //! What comes out: what every target wrote, and what a program has to know to
 //! bind it.
 //!
-//! The three text languages, two stages each, in the shape
+//! The four languages, two stages each, in the shape
 //! [Fluxion RHI](https://github.com/kisstp2006/fluxion-rhi) takes them - and
 //! beside them the numbers a pipeline is described with, so that a location,
 //! a slot and a name are written down once, in the shader, and read back from
-//! it rather than repeated:
+//! it rather than repeated. Handed over whole, the one shader runs on every
+//! backend, and nothing in the program asks which one it is on:
 //!
 //! ```zig
 //! var module = try shader.compile(gpa, source, &log);
@@ -17,22 +18,16 @@
 //!     .glsl = .{ .vertex = module.glsl.vertex, .fragment = module.glsl.fragment },
 //!     .glsl_es = .{ .vertex = module.glsl_es.vertex, .fragment = module.glsl_es.fragment },
 //!     .hlsl = .{ .vertex = module.hlsl.vertex, .fragment = module.hlsl.fragment },
+//!     .spirv = .{ .vertex = module.spirv.vertex, .fragment = module.spirv.fragment },
 //! });
 //! ```
 //!
-//! **`glsl`, `glsl_es` and `hlsl` are three of the rows of `output`.** The
-//! targets are a table (see `target`), and what each one wrote is in
-//! `outputs` at the position of its id; `output(id)` reads it, as text or as
-//! binary words. The three fields are there because every caller wants those
-//! three and should not have to ask for them by id. A target that was not asked
-//! for leaves its field empty and its output `.none`.
-//!
-//! ```zig
-//! var module = try shader.compileWith(gpa, source, &log, .{
-//!     .targets = .of(&.{ .glsl_330, .spirv_vulkan }),
-//! });
-//! const spv = module.output(.spirv_vulkan).words; // .vertex and .fragment, []const u32
-//! ```
+//! **`glsl`, `glsl_es`, `hlsl` and `spirv` are four of the rows of
+//! `output`.** The targets are a table (see `target`), and what each one
+//! wrote is in `outputs` at the position of its id; `output(id)` reads it, as
+//! text or as binary words. The four fields are there because every caller
+//! wants them and should not have to ask for them by id. A target that was
+//! not asked for leaves its field empty and its output `.none`.
 //!
 //! Everything in here is owned by the module and dies with `deinit`.
 
@@ -129,6 +124,9 @@ glsl_es: Sources,
 /// HLSL for shader model 5.0, for Direct3D 11 - and, unchanged, the input the
 /// Direct3D 12 toolchain compiles to DXBC or DXIL.
 hlsl: Sources,
+/// SPIR-V for Vulkan 1.0, one module per stage. Empty when
+/// `target.Id.spirv_vulkan` was not asked for.
+spirv: Words,
 /// What every target of the table wrote, at the position of its id. Read it
 /// with `output`.
 outputs: []const Output,

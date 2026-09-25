@@ -31,8 +31,13 @@ const handle = try device.createShader(.{
     .glsl = .{ .vertex = module.glsl.vertex, .fragment = module.glsl.fragment },
     .glsl_es = .{ .vertex = module.glsl_es.vertex, .fragment = module.glsl_es.fragment },
     .hlsl = .{ .vertex = module.hlsl.vertex, .fragment = module.hlsl.fragment },
+    .spirv = .{ .vertex = module.spirv.vertex, .fragment = module.spirv.fragment },
 });
 ```
+
+The one shader, handed over whole: whichever backend the device is -
+OpenGL, WebGL, Direct3D 11 or 12, Vulkan - it takes the language it draws
+with, and nothing in the program asks which one it is on.
 
 And the source it read:
 
@@ -232,9 +237,10 @@ out instead, which is the spelling that broadcasts.
 
 ## Targets
 
-`compile` writes the three text targets and costs what it always did.
-`compileWith` writes whichever you ask for, and `Module.output` hands back
-what each wrote:
+`compile` writes every target here - so a shader that one of them cannot
+express is refused at once, rather than on the one machine that draws with
+it. `compileWith` writes whichever you ask for, and `Module.output` hands
+back what each wrote:
 
 ```zig
 var module = try shader.compileWith(gpa, source, &log.writer, .{
@@ -251,11 +257,13 @@ const bytes = spv.vertexBytes();                   // []align(4) const u8, for v
 | `glsl_330` | `glsl` | text | GLSL 3.30 core, for desktop OpenGL. `module.glsl`. |
 | `glsl_es_300` | `glsl` | text | GLSL ES 3.00, for WebGL 2. `module.glsl_es`. |
 | `hlsl_50` | `hlsl` | text | HLSL for shader model 5.0, for Direct3D 11 - and the text the Direct3D 12 toolchain compiles. `module.hlsl`. |
-| `spirv_vulkan` | `spirv` | words | SPIR-V 1.0 for Vulkan 1.0. Asked for by name; it is not in the default. |
+| `spirv_vulkan` | `spirv` | words | SPIR-V 1.0 for Vulkan 1.0. `module.spirv`. |
 
-`module.glsl`, `module.glsl_es` and `module.hlsl` are three of the rows of
-`module.output`, kept as fields because every caller wants those three. A
-target that was not asked for leaves its field empty and its output `.none`.
+`module.glsl`, `module.glsl_es`, `module.hlsl` and `module.spirv` are four of
+the rows of `module.output`, kept as fields because every caller wants them.
+`target.Set.every` is all of them and the default; `text_targets` is the
+three text ones. A target that was not asked for leaves its field empty and
+its output `.none`.
 The reflection - `attributes`, `blocks`, `textures` - is the same whichever
 targets ran.
 

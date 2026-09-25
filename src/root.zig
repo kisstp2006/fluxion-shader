@@ -127,29 +127,29 @@ pub const Error = error{
     CompileFailed,
 } || Allocator.Error;
 
-/// Read one source and write out six: two stages in each of three languages.
+/// Read one source and write out eight: two stages in each of the four
+/// languages Fluxion RHI's backends take - GLSL, GLSL ES, HLSL and SPIR-V -
+/// so that the one shader, handed over whole, runs on every backend.
 ///
 /// Every complaint goes to `log`, in the order it was found, each with the
 /// line it happened on and a caret under the column. A log that stays empty
 /// is the only proof that nothing was wrong.
 ///
-/// This is `compileWith` asked for the three text targets, which is what it
-/// always was and what it still costs.
+/// This is `compileWith` asked for every target it ships.
 pub fn compile(gpa: Allocator, source: []const u8, log: *std.Io.Writer) Error!Module {
     return compileWith(gpa, source, log, .{});
 }
 
 /// Read one source and write out whichever targets `options` names.
 ///
-/// The default `Options` is the three text targets and is `compile`. SPIR-V
-/// is a row of the same table, asked for by id:
+/// The default `Options` is every shipped target and is `compile`. A program
+/// that wants fewer - a tool that only writes GLSL - names them by id:
 ///
 /// ```zig
 /// var module = try shader.compileWith(gpa, source, &log, .{
-///     .targets = .of(&.{.spirv_vulkan}),
+///     .targets = .of(&.{.glsl_330}),
 /// });
 /// defer module.deinit();
-/// const words = module.output(.spirv_vulkan).words; // .vertex, .fragment
 /// ```
 ///
 /// A target whose emitter cannot express the shader - SPIR-V has no
@@ -230,6 +230,10 @@ pub fn compileWith(
         .glsl = textOf(outputs, .glsl_330),
         .glsl_es = textOf(outputs, .glsl_es_300),
         .hlsl = textOf(outputs, .hlsl_50),
+        .spirv = switch (outputs[@intFromEnum(target.Id.spirv_vulkan)]) {
+            .words => |words| words,
+            else => .{ .vertex = &.{}, .fragment = &.{} },
+        },
         .outputs = outputs,
         .binding = options.binding,
         .attributes = attributes,

@@ -184,8 +184,11 @@ pub const Set = struct {
     /// The most rows a table can have.
     pub const capacity = 64;
 
-    /// The three text targets: what `compile` writes.
+    /// The three text targets.
     pub const text_targets: Set = .of(&.{ .glsl_330, .glsl_es_300, .hlsl_50 });
+    /// Every target this library ships: what `compile` writes, and what a
+    /// program hands Fluxion RHI so that one shader runs on every backend.
+    pub const every: Set = text_targets.with(.spirv_vulkan);
 
     pub fn of(ids: []const Id) Set {
         var set: Set = .{};
@@ -206,9 +209,9 @@ pub const Set = struct {
 
 /// What `compileWith` is asked for.
 pub const Options = struct {
-    /// Which rows of `table` to run. The default is the three text ones, so
-    /// that `compile` costs what it always has; SPIR-V is asked for by name.
-    targets: Set = .text_targets,
+    /// Which rows of `table` to run. The default is every shipped one: the
+    /// three text languages and SPIR-V.
+    targets: Set = .every,
     /// The rows there are. `builtin_targets`, or that with more after it: a
     /// table has to start with the shipped rows, because `Module.glsl` and
     /// the rest are read out of them by position.
