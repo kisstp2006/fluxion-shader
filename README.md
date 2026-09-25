@@ -452,6 +452,30 @@ lower them: `<` and its kin are for numbers and not bools, and a whole number
 against a float is a float, whichever side it is on (it used to be typed as the
 left operand, so `lane * 0.5` was an `int`).
 
+## In an editor
+
+`service` is what an editor asks about a shader being written, and it never
+stops at a source that does not read - a half-written shader is what an
+editor has most of the time:
+
+- **`analyze`** gives the colours, every declaration and what is wrong. The
+  colours and the declarations come from a scan that takes any bytes: each
+  name is coloured by what it names, a block's field, a varying, a parameter,
+  and a declaration's doc is the `//` comment right above it. What is wrong is
+  the compiler's own messages, as data - `Diagnostics.keepIn` keeps them as a
+  list as well as writing them to the log.
+- **`complete`** offers what the caret can see - the braces' own first, then
+  the source's, then the builtins, the stage outputs, the types and the
+  keywords - and a vector's components after a `.`.
+- **`signature`** is the call the caret is in, a builtin's or the source's own
+  function's, with the argument it is at; **`hover`** says what a name is.
+
+Every builtin has what it takes and what it does in `builtin_docs`, and a test
+fails if a new one does not.
+
+`front` is the compiler's first half - read and checked, nothing written out -
+which `compileWith` and `service.check` both run.
+
 ## Validation
 
 There is no GPU work in what this library does, so what it writes is only as

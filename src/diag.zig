@@ -17,18 +17,38 @@
 //! the loop that does the work.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const text = @import("fluxion_text");
 
 const Diagnostics = @This();
+
+/// A message as data, for an editor that marks where it is rather than
+/// printing it: where it is, from one, and what it says.
+pub const Problem = struct {
+    offset: u32,
+    line: u32,
+    column: u32,
+    message: []const u8,
+};
 
 source: []const u8,
 log: *std.Io.Writer,
 /// How many messages have been written. Zero at the end is the only proof
 /// that nothing went wrong.
 count: usize = 0,
+/// Where every message is kept as data as well, when something asked: see
+/// `keepIn`.
+kept: ?Kept = null,
+
+const Kept = struct { gpa: Allocator, list: *std.ArrayList(Problem) };
 
 pub fn init(source: []const u8, log: *std.Io.Writer) Diagnostics {
     return .{ .source = source, .log = log };
+}
+
+/// Keep every message in `list` too, its text made with `gpa`.
+pub fn keepIn(self: *Diagnostics, gpa: Allocator, list: *std.ArrayList(Problem)) void {
+    self.kept = .{ .gpa = gpa, .list = list };
 }
 
 /// One message, at the byte the trouble started on, with the line under it
@@ -43,6 +63,12 @@ pub fn report(
     // A writer that has run out of room has nothing more to say, and losing a
     // diagnostic is not a reason to fail a compile that was already failing.
     self.write(offset, fmt, args) catch {};
+    if (self.kept) |kept| {
+        var parser: text.Parser = .init(self.source);
+        const at = parser.locationAt(offset);
+        const message = std.fmt.allocPrint(kept.gpa, fmt, args) catch return;
+        kept.list.append(kept.gpa, .{ .offset = offset, .line = @intCast(at.line), .column = @intCast(at.column), .message = message }) catch {};
+    }
 }
 
 fn write(self: *Diagnostics, offset: u32, comptime fmt: []const u8, args: anytype) !void {
@@ -116,6 +142,21 @@ test "a second message is separated from the first" {
     try testing.expectEqual(@as(usize, 2), diagnostics.count);
     try testing.expect(std.mem.indexOf(u8, writer.buffered(), "1:1: first") != null);
     try testing.expect(std.mem.indexOf(u8, writer.buffered(), "2:1: second") != null);
+}
+
+test "messages are kept as data too, when asked" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    var list: std.ArrayList(Problem) = .empty;
+    var buffer: [256]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buffer);
+    var diagnostics: Diagnostics = .init("a\n  b\n", &writer);
+    diagnostics.keepIn(arena.allocator(), &list);
+    diagnostics.report(4, "`{s}` is wrong", .{"b"});
+    try testing.expectEqual(@as(usize, 1), list.items.len);
+    try testing.expectEqual(@as(u32, 2), list.items[0].line);
+    try testing.expectEqual(@as(u32, 3), list.items[0].column);
+    try testing.expectEqualStrings("`b` is wrong", list.items[0].message);
 }
 
 test "nothing said is nothing wrong" {

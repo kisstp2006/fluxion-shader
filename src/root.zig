@@ -96,6 +96,8 @@ pub const hlsl = @import("hlsl.zig");
 pub const spirv = @import("spirv.zig");
 pub const target = @import("target.zig");
 pub const Diagnostics = @import("diag.zig");
+/// What an editor asks of a shader being written. See `service`.
+pub const service = @import("service.zig");
 
 /// What comes out. See `Module`.
 pub const Module = @import("Module.zig");
@@ -171,29 +173,7 @@ pub fn compileWith(
     const work = scratch.allocator();
     const keep = owned.allocator();
     var diagnostics: Diagnostics = .init(source, log);
-
-    var failure: lex.Failure = undefined;
-    const tokens = lex.tokenize(work, source, &failure) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => {
-            diagnostics.report(failure.offset, "{s}", .{switch (failure.err) {
-                error.UnexpectedByte => "this is not part of anything the language has",
-                error.MalformedNumber => "this is not a number",
-                error.UnterminatedComment => "this comment reaches the end of the source",
-            }});
-            return error.CompileFailed;
-        },
-    };
-
-    var program = parse.parse(work, tokens, &diagnostics) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ParseFailed => return error.CompileFailed,
-    };
-
-    sema.check(work, &program, &diagnostics) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.CheckFailed => return error.CompileFailed,
-    };
+    var program = try front(work, source, &diagnostics);
 
     // The table has to start with the shipped rows: `Module.glsl` and the
     // other two are read out of them by position.
@@ -240,6 +220,34 @@ pub fn compileWith(
         .blocks = blocks,
         .textures = textures,
     };
+}
+
+/// The source read and checked: tokens, a tree, and the tree's types. What
+/// is wrong goes to `diagnostics`, and is `error.CompileFailed`.
+pub fn front(work: Allocator, source: []const u8, diagnostics: *Diagnostics) Error!ast.Program {
+    var failure: lex.Failure = undefined;
+    const tokens = lex.tokenize(work, source, &failure) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {
+            diagnostics.report(failure.offset, "{s}", .{switch (failure.err) {
+                error.UnexpectedByte => "this is not part of anything the language has",
+                error.MalformedNumber => "this is not a number",
+                error.UnterminatedComment => "this comment reaches the end of the source",
+            }});
+            return error.CompileFailed;
+        },
+    };
+
+    var program = parse.parse(work, tokens, diagnostics) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ParseFailed => return error.CompileFailed,
+    };
+
+    sema.check(work, &program, diagnostics) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.CheckFailed => return error.CompileFailed,
+    };
+    return program;
 }
 
 /// What a text target wrote, or two empty sources when it was not asked for.
@@ -341,6 +349,7 @@ test {
     _ = lex;
     _ = parse;
     _ = sema;
+    _ = service;
     _ = builtins;
     _ = glsl;
     _ = hlsl;
