@@ -351,6 +351,20 @@ const Emitter = struct {
         return id;
     }
 
+    /// A field's type: its own, or an array of it, each element a register
+    /// or more from the next.
+    fn fieldType(self: *Emitter, field: ast.BlockField) Allocator.Error!u32 {
+        const each = try self.typeId(field.ty);
+        if (field.count == 0) return each;
+        const length = try self.constInt(@intCast(field.count));
+        const before = self.b.interned.count();
+        const array = try self.b.intern(.type_array, &.{ each, length.id });
+        // Decorated once, the first time it is made: another field of the
+        // same shape shares it.
+        if (self.b.interned.count() != before) try self.b.decorate(array, .array_stride, &.{field.ty.strideInArray()});
+        return array;
+    }
+
     fn pointerTo(self: *Emitter, class: op.StorageClass, ty: u32) Allocator.Error!u32 {
         return self.b.intern(.type_pointer, &.{ @intFromEnum(class), ty });
     }
@@ -437,7 +451,7 @@ const Emitter = struct {
         for (program.blocks, self.block_vars) |block, *variable| {
             // The struct: one member per field, laid out where `sema` put it.
             const members = try self.a().alloc(u32, block.fields.len);
-            for (block.fields, members) |field, *member| member.* = try self.typeId(field.ty);
+            for (block.fields, members) |field, *member| member.* = try self.fieldType(field);
             const struct_id = try b.emitDeclaration(&b.globals, .type_struct, members);
 
             try b.decorate(struct_id, .block, &.{});
@@ -451,7 +465,7 @@ const Emitter = struct {
                     try b.decorateMember(struct_id, member, .col_major, &.{});
                     try b.decorateMember(struct_id, member, .matrix_stride, &.{16});
                 }
-                end = @max(end, field.byte_offset + field.ty.sizeInBlock());
+                end = @max(end, field.byte_offset + field.size());
                 if (self.names) try b.memberName(struct_id, member, field.name);
             }
             std.debug.assert(end <= block.size);
@@ -558,6 +572,10 @@ const Emitter = struct {
                 else => {},
             },
             .field => |f| try self.reachExpr(f.base),
+            .index => |i| {
+                try self.reachExpr(i.base);
+                try self.reachExpr(i.index);
+            },
             .call => |c| {
                 for (c.args) |arg| try self.reachExpr(arg);
                 switch (c.target) {
@@ -937,6 +955,7 @@ const Emitter = struct {
                 for (f.name, 0..) |letter, i| picked[i] = swizzleIndex(letter);
                 return self.pick(base, picked[0..f.name.len]);
             },
+            .index => |i| return self.element(i),
             .call => |c| switch (c.target) {
                 .construct => |ty| return self.construct(ty, c.args),
                 .user => |index| return self.userCall(index, c.args),
@@ -956,6 +975,26 @@ const Emitter = struct {
                 return self.chooseBetween(cond, then, other);
             },
         }
+    }
+
+    /// One element of a uniform block's array: a chain through the block to
+    /// the field and on to the element, loaded.
+    fn element(self: *Emitter, i: ast.Expr.Index) Error!Value {
+        const where = switch (i.base.kind) {
+            .name => |n| switch (n.binding) {
+                .uniform_field => |at| at,
+                else => return self.unsupported("an element of what is not an array"),
+            },
+            else => return self.unsupported("an element of what is not an array"),
+        };
+        const field = self.program.blocks[where.block].fields[where.field];
+        const which = try self.evaluate(i.index);
+        const pointer = try self.pointerTo(.uniform, try self.typeId(field.ty));
+        const member = try self.constInt(@intCast(where.field));
+        const chain = try self.b.emitResult(&self.code, .access_chain, pointer, &.{
+            self.block_vars[where.block], member.id, which.id,
+        });
+        return self.load(chain, field.ty);
     }
 
     fn number(self: *Emitter, n: ast.Expr.Number) Error!Value {

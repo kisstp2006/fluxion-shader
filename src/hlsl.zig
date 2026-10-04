@@ -83,7 +83,9 @@ pub fn emit(
                 12 => "w",
                 else => unreachable, // `sema` lays every field on a scalar.
             };
-            try w.print("    {s} {s} : packoffset(c{d}.{s});\n", .{ field.ty.hlsl(), field.name, register, component });
+            if (field.count > 0) {
+                try w.print("    {s} {s}[{d}] : packoffset(c{d}.{s});\n", .{ field.ty.hlsl(), field.name, field.count, register, component });
+            } else try w.print("    {s} {s} : packoffset(c{d}.{s});\n", .{ field.ty.hlsl(), field.name, register, component });
         }
         try w.writeAll("};\n\n");
     }
@@ -192,6 +194,7 @@ fn usesExpr(expr: *const ast.Expr, what: std.meta.Tag(ast.Binding)) bool {
             for (c.args) |arg| if (usesExpr(arg, what)) break :blk true;
             break :blk false;
         },
+        .index => |i| usesExpr(i.base, what) or usesExpr(i.index, what),
         .unary => |u| usesExpr(u.operand, what),
         .binary => |b| usesExpr(b.lhs, what) or usesExpr(b.rhs, what),
         .ternary => |t| usesExpr(t.cond, what) or usesExpr(t.then, what) or usesExpr(t.other, what),
@@ -341,6 +344,12 @@ fn expression(self: *Emitter, expr: *const ast.Expr) Emitter.Error!void {
             try self.w.print(".{s}", .{f.name});
         },
         .call => |called| try callExpr(self, called),
+        .index => |index| {
+            try expression(self, index.base);
+            try self.w.writeByte('[');
+            try expression(self, index.index);
+            try self.w.writeByte(']');
+        },
         .unary => |unary| {
             try self.w.writeByte('(');
             try self.w.writeAll(switch (unary.op) {

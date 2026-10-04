@@ -17,11 +17,13 @@ const std = @import("std");
 
 /// Every type the language has.
 ///
-/// Deliberately short. `int` is here for loop counters and array-free
-/// arithmetic; there are no integer vectors, no arrays and no user structs,
-/// because each of those is a place where `std140` and Direct3D's constant
-/// buffer packing stop agreeing, and a library that emitted both from one
-/// description would be promising something it could not keep. See the
+/// Deliberately short. `int` is here for loop counters and indices; there
+/// are no integer vectors and no user structs, because each of those is a
+/// place where `std140` and Direct3D's constant buffer packing stop
+/// agreeing, and a library that emitted both from one description would be
+/// promising something it could not keep. An array is a field of a uniform
+/// block and nothing else - `vec4 lights[16];` - read an element at a time,
+/// every element on a register of its own, where the two agree. See the
 /// README.
 pub const Type = enum {
     void,
@@ -157,6 +159,13 @@ pub const Type = enum {
             .mat4 => 64,
             else => 0,
         };
+    }
+
+    /// Bytes from one element of an array of this type to the next, in a
+    /// uniform block: a register at least, as `std140` and a constant buffer
+    /// both start every element on one.
+    pub fn strideInArray(self: Type) u32 {
+        return std.mem.alignForward(u32, self.sizeInBlock(), 16);
     }
 
     /// What a field of this type has to start on.
@@ -355,9 +364,18 @@ pub const Expr = struct {
         name: Name,
         field: Field,
         call: Call,
+        /// `lights[i]`: one element of an array.
+        index: Index,
         unary: Unary,
         binary: Binary,
         ternary: Ternary,
+    };
+
+    pub const Index = struct {
+        /// The array: a uniform block's field, by name.
+        base: *Expr,
+        /// Which element, an `int`, from nought.
+        index: *Expr,
     };
 
     pub const Number = struct {
@@ -474,7 +492,11 @@ pub const Varying = struct {
 
 pub const BlockField = struct {
     name: []const u8,
+    /// The type of the field, or of each element of an array.
     ty: Type,
+    /// How many elements, for an array - `vec4 lights[16];` - and nought for
+    /// one value.
+    count: u32 = 0,
     /// Bytes from the start of the block. Worked out by `sema`, under
     /// `std140`: what OpenGL, WebGL and Vulkan use, and not always what a
     /// Direct3D constant buffer does - see `Type.alignmentInBlock`.
@@ -488,6 +510,12 @@ pub const BlockField = struct {
     /// `default` worked out by `sema`, one float per component. Empty for a
     /// field with none.
     default_values: []const f32 = &.{},
+
+    /// Bytes the field takes: an array's elements are `Type.strideInArray`
+    /// apart, and the last one takes as many as the others.
+    pub fn size(self: BlockField) u32 {
+        return if (self.count == 0) self.ty.sizeInBlock() else self.ty.strideInArray() * self.count;
+    }
 };
 
 pub const UniformBlock = struct {

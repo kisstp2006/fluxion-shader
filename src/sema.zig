@@ -46,6 +46,9 @@ returns: ast.Type = .void,
 used_textures: []bool = &.{},
 used_blocks: []bool = &.{},
 written_varyings: []bool = &.{},
+/// Whether the name being checked is the array of an element - `lights` of
+/// `lights[i]` - which is the one place an array's name may stand.
+indexing: bool = false,
 
 const Local = struct {
     name: []const u8,
@@ -246,11 +249,19 @@ fn layOutBlock(
             self.diagnostics.report(field.offset, "a uniform block holds numbers, not {s}", .{field.ty.glsl()});
             continue;
         }
-        const alignment = field.ty.alignmentInBlock();
+        // An array starts on a register, and so does what comes after it.
+        const alignment = if (field.count > 0) 16 else field.ty.alignmentInBlock();
         offset = std.mem.alignForward(u32, offset, alignment);
         field.byte_offset = offset;
-        offset += field.ty.sizeInBlock();
-        if (field.default) |written| try self.defaultOf(field, written);
+        offset += field.size();
+        if (field.count > 0) offset = std.mem.alignForward(u32, offset, 16);
+        if (field.default) |written| {
+            if (field.count > 0) {
+                self.diagnostics.report(written.offset, "an array has no first value; the program fills it", .{});
+                continue;
+            }
+            try self.defaultOf(field, written);
+        }
     }
     block.size = std.mem.alignForward(u32, offset, 16);
 }
@@ -503,7 +514,11 @@ fn assignment(self: *Sema, assign: *ast.Stmt.Assign, offset: u32) Error!void {
 /// Can this be written to, and by this stage?
 fn isAssignable(self: *Sema, target: *ast.Expr) bool {
     var base = target;
-    while (base.kind == .field) base = base.kind.field.base;
+    while (true) switch (base.kind) {
+        .field => |f| base = f.base,
+        .index => |i| base = i.base,
+        else => break,
+    };
     if (base.kind != .name) {
         self.diagnostics.report(target.offset, "this is a value, and a value cannot be assigned to", .{});
         return false;
@@ -580,6 +595,7 @@ fn expression(self: *Sema, expr: *ast.Expr) Error!ast.Type {
         .name => try self.nameExpr(expr),
         .field => try self.fieldExpr(expr),
         .call => try self.callExpr(expr),
+        .index => try self.indexExpr(expr),
         .unary => |unary| blk: {
             const ty = try self.expression(unary.operand);
             if (ty == .void) break :blk .void;
@@ -647,6 +663,10 @@ fn nameExpr(self: *Sema, expr: *ast.Expr) Error!ast.Type {
             if (std.mem.eql(u8, f.name, text)) {
                 expr.kind.name.binding = .{ .uniform_field = .{ .block = @intCast(bi), .field = @intCast(fi) } };
                 if (bi < self.used_blocks.len) self.used_blocks[bi] = true;
+                if (f.count > 0 and !self.indexing) {
+                    self.diagnostics.report(expr.offset, "`{s}` is an array of {d}; it is read an element at a time: `{s}[i]`", .{ text, f.count, text });
+                    return .void;
+                }
                 return f.ty;
             }
         }
@@ -708,6 +728,50 @@ fn nameExpr(self: *Sema, expr: *ast.Expr) Error!ast.Type {
 
     self.diagnostics.report(expr.offset, "`{s}` is not anything this shader declared", .{text});
     return .void;
+}
+
+/// One element of an array: a uniform block's array field, by an `int`.
+/// The element type, or `.void` for what is not one.
+fn indexExpr(self: *Sema, expr: *ast.Expr) Error!ast.Type {
+    const index = expr.kind.index;
+    const array = self.arrayField(index.base) orelse {
+        _ = try self.expression(index.base);
+        self.diagnostics.report(expr.offset, "only an array has elements, and an array is a field of a uniform block", .{});
+        return .void;
+    };
+    self.indexing = true;
+    const element = try self.expression(index.base);
+    self.indexing = false;
+
+    const which = try self.expression(index.index);
+    if (which != .void and which != .int) {
+        self.diagnostics.report(index.index.offset, "an element is chosen by an int, not {s}", .{which.glsl()});
+        return .void;
+    }
+    if (index.index.kind == .number) {
+        const at = std.fmt.parseInt(u32, index.index.kind.number.bytes, 10) catch std.math.maxInt(u32);
+        if (at >= array.count) {
+            self.diagnostics.report(index.index.offset, "`{s}` has {d} elements, from nought to {d}", .{ array.name, array.count, array.count - 1 });
+            return .void;
+        }
+    }
+    return element;
+}
+
+/// The array field `base` names, if it names one.
+fn arrayField(self: *Sema, base: *const ast.Expr) ?ast.BlockField {
+    if (base.kind != .name) return null;
+    const text = base.kind.name.text;
+    // A local of the same name hides the field.
+    for (self.locals.items) |local| {
+        if (std.mem.eql(u8, local.name, text)) return null;
+    }
+    for (self.program.blocks) |block| {
+        for (block.fields) |f| {
+            if (std.mem.eql(u8, f.name, text)) return if (f.count > 0) f else null;
+        }
+    }
+    return null;
 }
 
 /// A field is a swizzle, because the only things with parts are vectors.

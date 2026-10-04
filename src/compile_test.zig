@@ -292,6 +292,80 @@ test "a block's fields are laid out where both APIs put them" {
     try expectContains(module.hlsl.vertex, "float2 offset : packoffset(c5.x);");
 }
 
+test "an array in a block is an element a register, read an element at a time by an int" {
+    var module = try build(
+        \\uniform Lights : 0 {
+        \\    vec4 colours[4];
+        \\    float count;
+        \\    mat4 bones[2];
+        \\    float weights[3];
+        \\    vec2 after;
+        \\}
+        \\vertex {
+        \\    vec4 sum = vec4(0.0);
+        \\    for (int i = 0; i < 4; i += 1) {
+        \\        sum += colours[i] * weights[i % 3];
+        \\    }
+        \\    position = bones[1] * sum + vec4(count, after.x, after.y, 1.0);
+        \\}
+        \\fragment { target = colours[2].xyzw; }
+    );
+    defer module.deinit();
+
+    const lights = module.blocks[0];
+    try testing.expectEqual(@as(u32, 4), lights.fields[0].count);
+    try testing.expectEqual(@as(u32, 0), lights.fields[1].count);
+    // Four registers of colours; a float after them starts the next one;
+    // the matrices start on a register too, and the floats each take one.
+    try testing.expectEqual(@as(?u32, 0), lights.offsetOf("colours"));
+    try testing.expectEqual(@as(?u32, 64), lights.offsetOf("count"));
+    try testing.expectEqual(@as(?u32, 80), lights.offsetOf("bones"));
+    try testing.expectEqual(@as(?u32, 208), lights.offsetOf("weights"));
+    // What comes after an array starts a register, as std140 says.
+    try testing.expectEqual(@as(?u32, 256), lights.offsetOf("after"));
+    try testing.expectEqual(@as(u32, 272), lights.size);
+
+    try expectContains(module.glsl.vertex, "vec4 colours[4];");
+    try expectContains(module.glsl.vertex, "colours[i]");
+    try expectContains(module.glsl_es.fragment, "colours[2]");
+    try expectContains(module.hlsl.vertex, "float4 colours[4] : packoffset(c0.x);");
+    try expectContains(module.hlsl.vertex, "float count : packoffset(c4.x);");
+    try expectContains(module.hlsl.vertex, "float4x4 bones[2] : packoffset(c5.x);");
+    try expectContains(module.hlsl.vertex, "float weights[3] : packoffset(c13.x);");
+    try expectContains(module.hlsl.vertex, "float2 after : packoffset(c16.x);");
+}
+
+test "an array is read an element at a time, by an int within it, and holds no first value" {
+    const head =
+        \\uniform Lights : 0 { vec4 colours[4]; }
+        \\vertex { position = vec4(0.0); }
+        \\
+    ;
+    try expectRefused(head ++ "fragment { target = colours; }", "an array of 4");
+    try expectRefused(head ++ "fragment { target = colours[1.5]; }", "chosen by an int");
+    try expectRefused(head ++ "fragment { target = colours[4]; }", "from nought to 3");
+    try expectRefused(
+        \\uniform Lights : 0 { vec4 colours[4] = vec4(1.0); }
+        \\vertex { position = colours[0]; }
+        \\fragment { target = vec4(1.0); }
+    , "no first value");
+    try expectRefused(
+        \\uniform Lights : 0 { vec4 colours[0]; }
+        \\vertex { position = colours[0]; }
+        \\fragment { target = vec4(1.0); }
+    , "one element or more");
+    try expectRefused(
+        \\uniform Lights : 0 { vec4 colour; }
+        \\vertex { position = colour[0]; }
+        \\fragment { target = vec4(1.0); }
+    , "only an array has elements");
+    try expectRefused(
+        \\uniform Lights : 0 { vec4 colours[2]; }
+        \\vertex { colours[0] = vec4(1.0); position = colours[1]; }
+        \\fragment { target = vec4(1.0); }
+    , "cannot be written");
+}
+
 test "a vector filled from one scalar is a cast in HLSL" {
     var module = try build(
         \\vertex { position = vec4(0.5); }

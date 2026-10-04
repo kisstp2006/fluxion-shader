@@ -185,9 +185,14 @@ fn uniformBlock(self: *Parser) Error!ast.UniformBlock {
         const at = self.peek().offset;
         const ty = try self.typeName();
         const field = try self.expect(.identifier);
+        const count: u32 = if (self.eat(.l_bracket)) blk: {
+            const length = try self.arrayLength();
+            _ = try self.expect(.r_bracket);
+            break :blk length;
+        } else 0;
         const default: ?*ast.Expr = if (self.eat(.equal)) try self.expression() else null;
         _ = try self.expect(.semicolon);
-        try fields.append(self.arena, .{ .name = field.bytes, .ty = ty, .offset = at, .default = default });
+        try fields.append(self.arena, .{ .name = field.bytes, .ty = ty, .count = count, .offset = at, .default = default });
     }
     _ = try self.expect(.r_brace);
 
@@ -265,6 +270,19 @@ fn slotNumber(self: *Parser) Error!u32 {
     return std.fmt.parseInt(u32, token.bytes, 10) catch {
         return self.fail(token.offset, "`{s}` is too large for a binding slot", .{token.bytes});
     };
+}
+
+/// How many elements an array has: a whole number written out, one or more.
+fn arrayLength(self: *Parser) Error!u32 {
+    const token = try self.expect(.number);
+    if (token.isFloatLiteral()) {
+        return self.fail(token.offset, "how many elements an array has is a whole number, not `{s}`", .{token.bytes});
+    }
+    const length = std.fmt.parseInt(u32, token.bytes, 10) catch {
+        return self.fail(token.offset, "`{s}` is too many elements", .{token.bytes});
+    };
+    if (length == 0) return self.fail(token.offset, "an array has one element or more", .{});
+    return length;
 }
 
 // -------------------------------------------------------------------------
@@ -528,12 +546,17 @@ fn unary(self: *Parser) Error!*ast.Expr {
 
 fn postfix(self: *Parser) Error!*ast.Expr {
     var value = try self.primary();
-    while (self.check(.dot)) {
-        _ = self.advance();
-        const name = try self.expect(.identifier);
-        value = try self.node(name.offset, .{ .field = .{ .base = value, .name = name.bytes } });
+    while (true) {
+        if (self.eat(.dot)) {
+            const name = try self.expect(.identifier);
+            value = try self.node(name.offset, .{ .field = .{ .base = value, .name = name.bytes } });
+        } else if (self.check(.l_bracket)) {
+            const open = self.advance();
+            const which = try self.expression();
+            _ = try self.expect(.r_bracket);
+            value = try self.node(open.offset, .{ .index = .{ .base = value, .index = which } });
+        } else return value;
     }
-    return value;
 }
 
 fn primary(self: *Parser) Error!*ast.Expr {

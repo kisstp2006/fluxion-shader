@@ -78,7 +78,11 @@ pub const Attribute = struct {
 
 pub const Field = struct {
     name: []const u8,
+    /// The type of the field, or of each element of an array.
     ty: ast.Type,
+    /// How many elements, for an array, each `ty.strideInArray()` bytes from
+    /// the next; nought for one value.
+    count: u32 = 0,
     /// Bytes from the start of the block, under `std140`: what OpenGL, WebGL
     /// and Vulkan (in the SPIR-V's `Offset` decorations) use, and what the
     /// HLSL says of each member with a `packoffset`.

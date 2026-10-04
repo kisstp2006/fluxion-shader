@@ -138,7 +138,9 @@ pub fn emitDialect(
     for (program.blocks) |b| {
         try w.print("layout(std140) uniform {s} {{\n", .{b.name});
         for (b.fields) |field| {
-            try w.print("    {s} {s};\n", .{ field.ty.glsl(), field.name });
+            if (field.count > 0) {
+                try w.print("    {s} {s}[{d}];\n", .{ field.ty.glsl(), field.name, field.count });
+            } else try w.print("    {s} {s};\n", .{ field.ty.glsl(), field.name });
         }
         try w.writeAll("};\n\n");
     }
@@ -309,6 +311,12 @@ fn expression(self: *Emitter, expr: *const ast.Expr) Emitter.Error!void {
             try self.w.print(".{s}", .{f.name});
         },
         .call => |called| try callExpr(self, called),
+        .index => |index| {
+            try expression(self, index.base);
+            try self.w.writeByte('[');
+            try expression(self, index.index);
+            try self.w.writeByte(']');
+        },
         .unary => |unary| {
             try self.w.writeByte('(');
             try self.w.writeAll(switch (unary.op) {

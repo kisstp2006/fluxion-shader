@@ -91,8 +91,9 @@ lists a `PipelineDesc` wants, in slot order, so the pipeline is described out
 of the shader rather than beside it. The SPIR-V descriptors are a function of
 the same slots, and nothing else.
 
-**What the targets do not agree on is left out.** No arrays, no structs,
-no integer vectors, no matrix literals, no `frag_coord`. Each of those is a
+**What the targets do not agree on is left out.** No structs, no arrays
+outside a uniform block, no integer vectors, no matrix literals, no
+`frag_coord`. Each of those is a
 place where the languages differ in a way this library cannot hide, and a
 library that emitted all of them from one description would be promising
 something it could not keep. [What is not here](#what-is-not-here) names each
@@ -151,6 +152,7 @@ the crossing taken out, and the stage boundaries made explicit.
 | `attribute vec2 corner : 0;` | A vertex input at location 0. `layout(location = 0)` there, `ATTR0` in HLSL, `Location 0` in SPIR-V. |
 | `varying vec2 uv;` | Written by the vertex stage, read by the fragment stage. |
 | `uniform Frame : 0 { mat4 projection; }` | A uniform block at slot 0. Its fields are in scope by name, as they are in every target. |
+| `uniform Lights : 1 { vec4 colours[16]; }` | A field that is an array: read an element at a time, `colours[i]`, by an `int` - a number out of its range is refused. It has no first value; the program fills it. |
 | `uniform Look : 1 { float strength = 0.5; }` | A field with a first value, written in numbers: a number, a negated one, or a vector made of them (`vec4(1.0)`). Not emitted - a block has nowhere to keep it - but handed back as `Field.default`, for the program filling the buffer to start from. |
 | `texture2d atlas : 0;` | A texture at slot 0, and the sampler that goes with it. |
 | `const float pi = 3.14159;` | A compile-time constant. |
@@ -382,7 +384,7 @@ this step**; the ones that are next are marked.
 
 | Missing | Because |
 | --- | --- |
-| Arrays and structs (next) | In a uniform block, `std140` gives an array a sixteen-byte stride and a Direct3D constant buffer starts every element on a register too but lets the member after it pack into the last one; a struct is rounded to sixteen in one and not in the other. The block layout is already where the two part ways - see [the block layout](#the-block-layout) - and `packoffset` is how they are made to agree. |
+| Structs, and arrays outside a block (next) | A struct is rounded to sixteen in `std140` and not in a constant buffer; an array in a function is another kind of local in four targets. An array in a uniform block is here: see [the block layout](#the-block-layout). |
 | Integer vectors (next) | Nothing needs them yet, and every one is another set of conversion rules to get right in four targets. |
 | Cube and 3D samplers (next) | One `texture2d` is the one image type; each is another `OpTypeImage` and another method in HLSL. |
 | A compute stage (next) | The RHI has no compute pass yet either. When it does. |
@@ -432,6 +434,14 @@ left to itself it would put `b` of `{ float a; vec3 b; }` at 4, where `std140`
 says 16. So the HLSL this library writes says where every member is -
 `float3 direction : packoffset(c0.x);` - with `std140`'s offset, and `offsetOf`
 is the same number on every backend.
+
+**An array is an element a register.** Both say every element of an array
+starts on a register: `vec4 colours[4]` is sixty-four bytes, `float weights[3]`
+forty-eight, and `mat4 bones[2]` a hundred and twenty-eight. A constant buffer
+would let the member after an array pack into the end of its last register;
+`std140` starts it on the next, and so does the `packoffset` written for it.
+`Field.count` says how many elements there are, and `Type.strideInArray` how
+far apart; the SPIR-V says it with `ArrayStride`.
 
 ## What it refuses
 

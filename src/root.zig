@@ -322,6 +322,7 @@ fn blocksOf(keep: Allocator, program: *const ast.Program) Allocator.Error![]cons
             copy.* = .{
                 .name = try keep.dupe(u8, field.name),
                 .ty = field.ty,
+                .count = field.count,
                 .offset = field.byte_offset,
                 .default = if (field.default != null) try keep.dupe(f32, field.default_values) else null,
             };

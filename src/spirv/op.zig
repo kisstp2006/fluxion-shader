@@ -42,6 +42,7 @@ pub const Op = enum(u16) {
     type_matrix = 24,
     type_image = 25,
     type_sampled_image = 27,
+    type_array = 28,
     type_struct = 30,
     type_pointer = 32,
     type_function = 33,
@@ -200,6 +201,7 @@ pub const StorageClass = enum(u32) {
 pub const Decoration = enum(u32) {
     block = 2,
     col_major = 5,
+    array_stride = 6,
     matrix_stride = 7,
     built_in = 11,
     flat = 14,
@@ -269,6 +271,7 @@ pub fn info(op: Op) Info {
         .type_vector, .type_matrix => .{ .has_result = t, .operands = &.{ .id, .lit } },
         .type_image => .{ .has_result = t, .operands = &.{ .id, .lit, .lit, .lit, .lit, .lit, .lit } },
         .type_sampled_image => .{ .has_result = t, .operands = &.{.id} },
+        .type_array => .{ .has_result = t, .operands = &.{ .id, .id } },
         .type_struct => .{ .has_result = t, .operands = &.{.ids} },
         .type_pointer => .{ .has_result = t, .operands = &.{ .lit, .id } },
         .type_function => .{ .has_result = t, .operands = &.{ .id, .ids } },
@@ -350,7 +353,7 @@ pub fn section(op: Op) Section {
         .execution_mode => .execution_modes,
         .source, .name, .member_name => .debug,
         .decorate, .member_decorate => .annotations,
-        .type_void, .type_bool, .type_int, .type_float, .type_vector, .type_matrix, .type_image, .type_sampled_image, .type_struct, .type_pointer, .type_function, .constant_true, .constant_false, .constant, .constant_composite, .undef, .variable => .types,
+        .type_void, .type_bool, .type_int, .type_float, .type_vector, .type_matrix, .type_image, .type_sampled_image, .type_array, .type_struct, .type_pointer, .type_function, .constant_true, .constant_false, .constant, .constant_composite, .undef, .variable => .types,
         else => .functions,
     };
 }
