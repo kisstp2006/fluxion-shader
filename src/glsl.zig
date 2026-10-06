@@ -140,7 +140,7 @@ pub fn emitDialect(
     }
     if (program.varyings.len > 0) try w.writeByte('\n');
 
-    if (stage == .fragment) {
+    if (stage == .fragment and !program.depth_only) {
         try w.print("out vec4 {s};\n\n", .{target_name});
     }
 

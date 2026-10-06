@@ -150,6 +150,11 @@ pub fn emit(
         try w.print("    {s} {s};\n", .{ varyings_struct, output_value });
         try body(&e, program.vertex.?.body);
         try w.print("    return {s};\n}}\n", .{output_value});
+    } else if (program.depth_only) {
+        // No colour: depth alone, and what the stage discards.
+        try w.print("void main({s} {s}) {{\n", .{ varyings_struct, input_value });
+        try body(&e, program.fragment.?.body);
+        try w.writeAll("}\n");
     } else {
         try w.print("float4 main({s} {s}) : SV_TARGET {{\n", .{ varyings_struct, input_value });
         try w.print("    float4 {s};\n", .{target_value});

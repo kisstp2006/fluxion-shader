@@ -439,7 +439,7 @@ const Emitter = struct {
             try b.decorate(self.position_var, .built_in, &.{@intFromEnum(op.BuiltIn.position)});
             try self.interface.append(self.a(), self.position_var);
             if (self.names) try b.name(self.position_var, "fluxion_position");
-        } else {
+        } else if (!program.depth_only) {
             self.target_var = try self.globalVariable(.output, try self.typeId(.vec4));
             try b.decorate(self.target_var, .location, &.{0});
             try self.interface.append(self.a(), self.target_var);

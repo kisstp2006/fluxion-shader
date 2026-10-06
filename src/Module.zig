@@ -141,6 +141,8 @@ outputs: []const Output,
 /// pipeline layout can be made from the same numbers the shader was written
 /// with. See `target.BindingLayout`.
 binding: target.BindingLayout = .{},
+/// Its fragment stage gives no colour: `Options.depth_only`.
+depth_only: bool = false,
 /// In the order they were declared, which is not the order of their
 /// locations.
 attributes: []const Attribute,

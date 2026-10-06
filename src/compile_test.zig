@@ -656,6 +656,42 @@ test "a stage that draws nothing says so" {
     try expectRefused("vertex { position = vec4(1.0); }", "no fragment stage");
 }
 
+test "a depth-only shader gives no colour, in any language, and still discards" {
+    const source =
+        \\attribute vec3 spot : 0;
+        \\varying vec2 uv;
+        \\texture2d leaves : 0;
+        \\vertex { uv = spot.xy; position = vec4(spot, 1.0); }
+        \\fragment {
+        \\    if (sample(leaves, uv).a < 0.5) {
+        \\        discard;
+        \\    }
+        \\}
+    ;
+    var log: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer log.deinit();
+    var module = shader.compileWith(testing.allocator, source, &log.writer, .{ .depth_only = true }) catch |err| {
+        std.debug.print("\n{s}\n", .{log.written()});
+        return err;
+    };
+    defer module.deinit();
+    try testing.expect(module.depth_only);
+    try testing.expect(std.mem.indexOf(u8, module.glsl.fragment, "out vec4") == null);
+    try testing.expect(std.mem.indexOf(u8, module.glsl_es.fragment, "out vec4") == null);
+    try expectContains(module.hlsl.fragment, "void main(");
+    try testing.expect(std.mem.indexOf(u8, module.hlsl.fragment, "SV_TARGET") == null);
+    try expectContains(module.glsl.fragment, "discard;");
+    try toolchain.checkShaderWith(testing.allocator, "a depth-only shader", source, true, .{}, .{ .depth_only = true });
+
+    // Its colour is no one's to write.
+    log.clearRetainingCapacity();
+    try testing.expectError(error.CompileFailed, shader.compileWith(testing.allocator,
+        \\vertex { position = vec4(1.0); }
+        \\fragment { target = vec4(1.0); }
+    , &log.writer, .{ .depth_only = true }));
+    try expectContains(log.written(), "depth only");
+}
+
 test "the types have to add up" {
     try expectRefused(
         \\vertex { position = vec3(1.0, 1.0, 1.0); }

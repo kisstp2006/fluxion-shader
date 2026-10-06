@@ -581,6 +581,8 @@ pub const Program = struct {
     functions: []Function = &.{},
     vertex: ?Stage = null,
     fragment: ?Stage = null,
+    /// The fragment stage gives no colour: `Options.depth_only`.
+    depth_only: bool = false,
 };
 
 // -------------------------------------------------------------------------

@@ -222,6 +222,11 @@ pub const Options = struct {
     /// disassembly reads like the source. Off by default, because a name is
     /// bytes a driver reads past.
     debug_names: bool = false,
+    /// The fragment stage gives no colour: what a pass with no colour
+    /// attachment draws with - a shadow map, a depth prepass. It writes no
+    /// `target`, and none is declared for it in any language; the stage
+    /// still runs, to `discard` what it leaves out.
+    depth_only: bool = false,
 };
 
 /// The id of the row called `name`, or null.

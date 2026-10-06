@@ -173,7 +173,7 @@ pub fn compileWith(
     const work = scratch.allocator();
     const keep = owned.allocator();
     var diagnostics: Diagnostics = .init(source, log);
-    var program = try front(work, source, &diagnostics);
+    var program = try frontWith(work, source, &diagnostics, options.depth_only);
 
     // The table has to start with the shipped rows: `Module.glsl` and the
     // other two are read out of them by position.
@@ -216,6 +216,7 @@ pub fn compileWith(
         },
         .outputs = outputs,
         .binding = options.binding,
+        .depth_only = options.depth_only,
         .attributes = attributes,
         .blocks = blocks,
         .textures = textures,
@@ -225,6 +226,12 @@ pub fn compileWith(
 /// The source read and checked: tokens, a tree, and the tree's types. What
 /// is wrong goes to `diagnostics`, and is `error.CompileFailed`.
 pub fn front(work: Allocator, source: []const u8, diagnostics: *Diagnostics) Error!ast.Program {
+    return frontWith(work, source, diagnostics, false);
+}
+
+/// `front`, for a fragment stage that gives a colour or, with `depth_only`,
+/// none.
+pub fn frontWith(work: Allocator, source: []const u8, diagnostics: *Diagnostics, depth_only: bool) Error!ast.Program {
     var failure: lex.Failure = undefined;
     const tokens = lex.tokenize(work, source, &failure) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -242,6 +249,7 @@ pub fn front(work: Allocator, source: []const u8, diagnostics: *Diagnostics) Err
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseFailed => return error.CompileFailed,
     };
+    program.depth_only = depth_only;
 
     sema.check(work, &program, diagnostics) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,

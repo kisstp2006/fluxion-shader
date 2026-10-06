@@ -197,7 +197,22 @@ pub fn checkShader(
     hlsl_valid: bool,
     want: Want,
 ) !void {
-    const key = std.hash.Wyhash.hash(want.bits() << 1 | @intFromBool(hlsl_valid), source);
+    return checkShaderWith(gpa, name, source, hlsl_valid, want, .{});
+}
+
+/// What a shader is compiled with besides its targets, for `checkShaderWith`.
+pub const Compiled = struct { depth_only: bool = false };
+
+/// `checkShader`, for a shader compiled with `compiled`.
+pub fn checkShaderWith(
+    gpa: std.mem.Allocator,
+    name: []const u8,
+    source: []const u8,
+    hlsl_valid: bool,
+    want: Want,
+    compiled: Compiled,
+) !void {
+    const key = std.hash.Wyhash.hash(want.bits() << 2 | @as(u64, @intFromBool(compiled.depth_only)) << 1 | @intFromBool(hlsl_valid), source);
     const keep = std.heap.page_allocator;
     if (seen.contains(key)) return;
     try seen.put(keep, key, {});
@@ -206,6 +221,7 @@ pub fn checkShader(
     defer log.deinit();
     var module = shader.compileWith(gpa, source, &log.writer, .{
         .targets = .of(&.{ .hlsl_50, .spirv_vulkan }),
+        .depth_only = compiled.depth_only,
     }) catch |err| {
         std.debug.print("\n`{s}` did not compile to SPIR-V: {s}\n{s}\n", .{ name, @errorName(err), log.written() });
         return err;

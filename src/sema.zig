@@ -115,7 +115,7 @@ fn run(self: *Sema) Error!void {
         self.depth = 0;
         self.locals.clearRetainingCapacity();
         try self.body(stage.body);
-        if (!writesTo(stage.body, .target)) {
+        if (!self.program.depth_only and !writesTo(stage.body, .target)) {
             self.diagnostics.report(stage.offset, "the fragment stage never writes `target`, so it has no colour to give", .{});
         }
     } else {
@@ -847,6 +847,10 @@ fn nameExpr(self: *Sema, expr: *ast.Expr) Error!ast.Type {
     if (std.mem.eql(u8, text, "target")) {
         if (self.where != .fragment) {
             self.diagnostics.report(expr.offset, "`target` belongs to the fragment stage", .{});
+            return .void;
+        }
+        if (self.program.depth_only) {
+            self.diagnostics.report(expr.offset, "this shader gives no colour - it was compiled depth only - so there is no `target`", .{});
             return .void;
         }
         expr.kind.name.binding = .target;

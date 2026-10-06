@@ -178,9 +178,15 @@ and everything else needs `float(x)`.
 | varyings | write | read |
 | uniforms, textures, constants | read | read |
 | `position` | write, and it must | — |
-| `target` | — | write, and it must |
+| `target` | — | write, and it must - unless compiled `depth_only` |
 | `vertex_index`, `instance_index` | read | — |
 | `discard` | — | yes |
+
+**A shader may give no colour.** Compiled with `Options.depth_only`, its
+fragment stage writes no `target` and none is declared for it - no `out`, no
+`SV_TARGET`, no output variable - which is what a pass with no colour
+attachment draws with: a shadow map, a depth prepass. The stage still runs,
+to `discard` what it leaves out, and `Module.depth_only` says it was made so.
 
 **A function may touch neither stage.** Parameters, locals, constants, uniform
 fields and textures, and nothing else. That is not tidiness: every function is
