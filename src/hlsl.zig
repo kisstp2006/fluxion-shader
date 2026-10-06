@@ -17,6 +17,9 @@
 //! | `target` | the value the fragment stage returns, `SV_TARGET` |
 //! | `vertex_index` | `SV_VertexID` |
 //! | `sample(t, uv)` | `t.Sample(t_sampler, uv)` |
+//! | `sample_level(t, uv, lod)` | `t.SampleLevel(t_sampler, uv, lod)` |
+//! | `texture2d_shadow s` | a `Texture2D` and a `SamplerComparisonState` |
+//! | `sample_compare(s, uv, depth)` | `s.SampleCmpLevelZero(s_sampler, uv, depth)` |
 //! | `fract`, `mix`, `inversesqrt` | `frac`, `lerp`, `rsqrt` |
 //! | `m * v` | `mul(m, v)` |
 //! | `vec4(x)` for one scalar `x` | `((float4)(x))` |
@@ -92,7 +95,9 @@ pub fn emit(
 
     for (program.textures) |t| {
         try w.print("Texture2D {s} : register(t{d});\n", .{ t.name, t.slot });
-        try w.print("SamplerState {s}_sampler : register(s{d});\n", .{ t.name, t.slot });
+        // A shadow texture is read through a sampler that compares.
+        const sampler = if (t.ty == .texture2d_shadow) "SamplerComparisonState" else "SamplerState";
+        try w.print("{s} {s}_sampler : register(s{d});\n", .{ sampler, t.name, t.slot });
     }
     if (program.textures.len > 0) try w.writeByte('\n');
 

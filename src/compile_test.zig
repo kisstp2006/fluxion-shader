@@ -438,6 +438,71 @@ test "the functions that are spelled differently are spelled differently" {
     try expectContains(hl, "float g = (ddx(f) + ddy(f));");
 }
 
+test "a shadow map is compared with, at level zero, in a loop; a picture is read at a level" {
+    var module = try build(
+        \\attribute vec3 spot : 0;
+        \\varying vec3 seen;
+        \\varying float lift;
+        \\uniform Light : 0 { mat4 to_light; vec4 texel; }
+        \\texture2d heights : 0;
+        \\texture2d_shadow shadows : 1;
+        \\vertex {
+        \\    lift = sample_level(heights, spot.xy, 0.0).x;
+        \\    seen = (to_light * vec4(spot, 1.0)).xyz;
+        \\    position = vec4(spot, 1.0);
+        \\}
+        \\fragment {
+        \\    float lit = 0.0;
+        \\    for (int i = 0; i < 4; i = i + 1) {
+        \\        lit = lit + sample_compare(shadows, seen.xy + vec2(float(i), 0.0) * texel.xy, seen.z);
+        \\    }
+        \\    target = vec4(vec3(lit * 0.25 + lift), 1.0);
+        \\}
+    );
+    defer module.deinit();
+
+    try expectContains(module.glsl.vertex, "textureLod(heights, spot.xy, 0.0)");
+    try expectContains(module.glsl.fragment, "uniform highp sampler2DShadow shadows;");
+    try expectContains(module.glsl.fragment, "uniform sampler2D heights;");
+    try expectContains(module.glsl.fragment, "textureLod(shadows, vec3((seen.xy + (vec2(float(i), 0.0) * texel.xy)), seen.z), 0.0)");
+    try expectContains(module.hlsl.vertex, "heights.SampleLevel(heights_sampler, fluxion_in.spot.xy, 0.0)");
+    try expectContains(module.hlsl.fragment, "SamplerComparisonState shadows_sampler : register(s1);");
+    try expectContains(module.hlsl.fragment, "SamplerState heights_sampler : register(s0);");
+    try expectContains(module.hlsl.fragment, "shadows.SampleCmpLevelZero(shadows_sampler, ");
+
+    // What is bound there is said, so a program can bind a depth texture
+    // and a sampler that compares.
+    try testing.expectEqual(@as(usize, 2), module.textures.len);
+    try testing.expect(!module.textures[0].shadow);
+    try testing.expect(module.textures[1].shadow);
+}
+
+test "a shadow map and a picture are read each its own way" {
+    try expectRefused(
+        \\texture2d_shadow shadows : 0;
+        \\varying vec2 uv;
+        \\vertex { uv = vec2(0.0); position = vec4(0.0); }
+        \\fragment { target = sample(shadows, uv); }
+    , "a texture2d_shadow is read with `sample_compare`");
+    try expectRefused(
+        \\texture2d picture : 0;
+        \\varying vec2 uv;
+        \\vertex { uv = vec2(0.0); position = vec4(0.0); }
+        \\fragment { target = vec4(sample_compare(picture, uv, 0.5)); }
+    , "compares with a texture2d_shadow, and this is a texture2d");
+    try expectRefused(
+        \\texture2d picture : 0;
+        \\varying vec2 uv;
+        \\vertex { uv = vec2(0.0); position = vec4(0.0); }
+        \\fragment { target = sample_level(picture, uv); }
+    , "`sample_level` takes 3 arguments, and this passes 2");
+    try expectRefused(
+        \\texture2d_shadow shadows : 0;
+        \\vertex { position = vec4(0.0); }
+        \\fragment { texture2d_shadow other = shadows; target = vec4(1.0); }
+    , "a local cannot be sampler2DShadow");
+}
+
 test "mod is GLSL's mod on both sides" {
     var module = try build(
         \\vertex { position = vec4(0.0); }

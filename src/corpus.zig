@@ -40,6 +40,7 @@ pub const all = [_]Shader{
     .{ .name = "derivative in a function", .source = derivative_in_a_function },
     .{ .name = "matrix attribute", .source = matrix_attribute },
     .{ .name = "loops without a condition", .source = loops_without_a_condition, .hlsl_valid = false },
+    .{ .name = "shadow map", .source = shadow_map },
 };
 
 /// How many of `all` the golden hashes cover.
@@ -612,6 +613,41 @@ pub const vertex_texture =
     \\
     \\fragment {
     \\    target = vec4(height);
+    \\}
+;
+
+/// A shadow map filtered in a loop, and a picture read at a level in the
+/// vertex stage: neither read needs a derivative, so both are valid in any
+/// stage, and the comparing one wants a depth image and a sampler that
+/// compares.
+pub const shadow_map =
+    \\attribute vec3 spot : 0;
+    \\varying vec3 seen;
+    \\varying float lift;
+    \\
+    \\uniform Light : 0 {
+    \\    mat4 to_light;
+    \\    vec4 texel;
+    \\}
+    \\
+    \\texture2d heights : 0;
+    \\texture2d_shadow shadows : 1;
+    \\
+    \\vertex {
+    \\    lift = sample_level(heights, spot.xy, 0.0).x;
+    \\    seen = (to_light * vec4(spot, 1.0)).xyz;
+    \\    position = vec4(spot, 1.0);
+    \\}
+    \\
+    \\fragment {
+    \\    float lit = 0.0;
+    \\    for (int i = 0; i < 9; i = i + 1) {
+    \\        vec2 shift = vec2(float(i - (i / 3) * 3) - 1.0, float(i / 3) - 1.0) * texel.xy;
+    \\        if (texel.z > 0.0) {
+    \\            lit = lit + sample_compare(shadows, seen.xy + shift, seen.z - texel.w);
+    \\        }
+    \\    }
+    \\    target = vec4(vec3(lit / 9.0 + lift), 1.0);
     \\}
 ;
 

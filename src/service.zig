@@ -26,7 +26,7 @@ pub const keywords = [_][]const u8{ "attribute", "varying", "uniform", "const", 
 pub const control = [_][]const u8{ "if", "else", "for", "while", "return", "discard" };
 pub const constants = [_][]const u8{ "true", "false" };
 
-/// Every type's name, `void` to `texture2d`.
+/// Every type's name, `void` to `texture2d_shadow`.
 pub const types = blk: {
     const fields = @typeInfo(ast.Type).@"enum".fields;
     var names: [fields.len][]const u8 = undefined;
@@ -52,6 +52,8 @@ pub const Word = struct {
 /// which a test makes sure of.
 pub const builtin_docs = [_]struct { name: []const u8, params: []const u8, doc: []const u8 }{
     .{ .name = "sample", .params = "texture, uv", .doc = "The texture's colour at `uv`, from nought to one across and down, filtered: a vec4." },
+    .{ .name = "sample_level", .params = "texture, uv, level", .doc = "The texture's colour at `uv` from one level of its mipmaps, 0 the largest: a vec4. Needs no derivative, so it reads the same in any stage, loop or branch." },
+    .{ .name = "sample_compare", .params = "shadow, uv, depth", .doc = "How much of a texture2d_shadow around `uv` is farther than `depth`, nought to one: a shadow map's answer to whether a point is lit, filtered across neighbouring texels where the sampler is linear." },
     .{ .name = "abs", .params = "x", .doc = "`x` without its sign, each component." },
     .{ .name = "floor", .params = "x", .doc = "The whole number at or below `x`, each component." },
     .{ .name = "ceil", .params = "x", .doc = "The whole number at or above `x`, each component." },
@@ -101,7 +103,8 @@ pub const type_docs = [_]Word{
     .{ .name = "mat2", .detail = "mat2", .doc = "A two by two matrix of floats." },
     .{ .name = "mat3", .detail = "mat3", .doc = "A three by three matrix of floats." },
     .{ .name = "mat4", .detail = "mat4", .doc = "A four by four matrix of floats: a transform." },
-    .{ .name = "texture2d", .detail = "texture2d", .doc = "A picture, read with `sample`." },
+    .{ .name = "texture2d", .detail = "texture2d", .doc = "A picture, read with `sample` or `sample_level`." },
+    .{ .name = "texture2d_shadow", .detail = "texture2d_shadow", .doc = "A depth picture, read by comparing with it: `sample_compare`. A shadow map." },
 };
 
 pub const keyword_docs = [_]Word{
@@ -306,7 +309,7 @@ fn declarations(arena: Allocator, source: []const u8, lexemes: []const Lexeme) A
         if (in_uniform) {
             decl.kind = .field;
             decl.scope = whole;
-        } else if (std.mem.eql(u8, word, "texture2d") and depth == 0) {
+        } else if ((std.mem.eql(u8, word, "texture2d") or std.mem.eql(u8, word, "texture2d_shadow")) and depth == 0) {
             decl.kind = .texture;
         } else if (depth == 0 and !in_params and std.mem.eql(u8, after_text, "(")) {
             decl.kind = .function;

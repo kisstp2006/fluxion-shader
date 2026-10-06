@@ -84,7 +84,9 @@
 //! definition, `x - y * floor(x / y)`; `saturate` is a clamp to `[0, 1]`;
 //! `sample` is `OpImageSampleImplicitLod` in the fragment stage and an
 //! explicit level of zero in the vertex stage, where a derivative does not
-//! exist and GLSL's `texture` does the same. The one implicit conversion the
+//! exist and GLSL's `texture` does the same; `sample_level` is the explicit
+//! level it is given, and `sample_compare` an `OpImageSampleDrefExplicitLod`
+//! at level zero on a depth image. The one implicit conversion the
 //! language has - a whole number meeting a float - is an `OpConvertSToF`, or
 //! a constant, exactly where `sema` allows it.
 //!
@@ -332,13 +334,15 @@ const Emitter = struct {
             .mat2, .mat3, .mat4 => try self.b.intern(.type_matrix, &.{
                 try self.typeId(ast.Type.vector(ty.dimension()).?), ty.dimension(),
             }),
-            .texture2d => blk: {
+            .texture2d, .texture2d_shadow => blk: {
                 // A 2D float image that is sampled, unknown format, and the
-                // combination of it with a sampler: what `sample` takes.
+                // combination of it with a sampler: what `sample` takes. A
+                // shadow texture is a depth image, which is what a comparing
+                // read wants.
                 const image = try self.b.intern(.type_image, &.{
                     try self.typeId(.float),
                     @intFromEnum(op.Dim.@"2d"),
-                    0, // not a depth image
+                    @intFromBool(ty == .texture2d_shadow), // a depth image
                     0, // not arrayed
                     0, // not multisampled
                     1, // used with a sampler
@@ -482,7 +486,7 @@ const Emitter = struct {
 
         self.texture_vars = try self.a().alloc(u32, program.textures.len);
         for (program.textures, self.texture_vars) |texture, *variable| {
-            variable.* = try self.globalVariable(.uniform_constant, try self.typeId(.texture2d));
+            variable.* = try self.globalVariable(.uniform_constant, try self.typeId(texture.ty));
             try b.decorate(variable.*, .descriptor_set, &.{self.binding.texture_set});
             try b.decorate(variable.*, .binding, &.{texture.slot});
             if (self.names) try b.name(variable.*, texture.name);
@@ -1026,7 +1030,7 @@ const Emitter = struct {
             .target => return self.load(self.target_var, .vec4),
             .vertex_index => return self.load(try self.builtinInput(.vertex_index), .int),
             .instance_index => return self.load(try self.builtinInput(.instance_index), .int),
-            .texture => |i| return self.load(self.texture_vars[i], .texture2d),
+            .texture => |i| return self.load(self.texture_vars[i], program.textures[i].ty),
             .uniform_field => |where| {
                 const field = program.blocks[where.block].fields[where.field];
                 const pointer = try self.pointerTo(.uniform, try self.typeId(field.ty));
@@ -1313,6 +1317,8 @@ const Emitter = struct {
         switch (lowering.lower) {
             .recipe => |recipe| switch (recipe) {
                 .sample => return self.sample(args),
+                .sample_level => return self.sampleLevel(args),
+                .sample_compare => return self.sampleCompare(args),
                 .mod, .dot => {},
             },
             else => {},
@@ -1350,7 +1356,7 @@ const Emitter = struct {
                 return self.emitValue(opcode, e.ty, operands.items);
             },
             .recipe => |recipe| switch (recipe) {
-                .sample => unreachable,
+                .sample, .sample_level, .sample_compare => unreachable,
                 // GLSL's `mod`, which is `x - y * floor(x / y)`.
                 .mod => {
                     const quotient = try self.emitValue(.f_div, e.ty, &.{ values[0].id, values[1].id });
@@ -1387,6 +1393,28 @@ const Emitter = struct {
         const level = try self.constFloat(0.0);
         return self.emitValue(.image_sample_explicit_lod, .vec4, &.{
             image.id, coordinate.id, op.image_operand_lod, level.id,
+        });
+    }
+
+    /// `sample_level(t, uv, lod)`: the level as given, in any stage.
+    fn sampleLevel(self: *Emitter, args: []const *ast.Expr) Error!Value {
+        const image = try self.evaluate(args[0]);
+        const coordinate = try self.evaluate(args[1]);
+        const level = try self.asFloat(try self.evaluate(args[2]));
+        return self.emitValue(.image_sample_explicit_lod, .vec4, &.{
+            image.id, coordinate.id, op.image_operand_lod, level.id,
+        });
+    }
+
+    /// `sample_compare(t, uv, depth)`: the depth image compared with `depth`
+    /// at level zero, as the other targets read it.
+    fn sampleCompare(self: *Emitter, args: []const *ast.Expr) Error!Value {
+        const image = try self.evaluate(args[0]);
+        const coordinate = try self.evaluate(args[1]);
+        const depth = try self.asFloat(try self.evaluate(args[2]));
+        const level = try self.constFloat(0.0);
+        return self.emitValue(.image_sample_dref_explicit_lod, .float, &.{
+            image.id, coordinate.id, depth.id, op.image_operand_lod, level.id,
         });
     }
 };

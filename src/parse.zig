@@ -129,8 +129,8 @@ fn program(self: *Parser) Error!ast.Program {
                 // `texture2d atlas : 0;` against `vec4 shade(...) { }`.
                 if (self.peekAt(2).kind == .l_paren) {
                     try functions.append(self.arena, try self.function());
-                } else if (ty == .texture2d) {
-                    try textures.append(self.arena, try self.texture());
+                } else if (ty.isTexture()) {
+                    try textures.append(self.arena, try self.texture(ty));
                 } else {
                     return self.fail(token.offset, "a value declared here has to be `const`, and anything else here has to be a function", .{});
                 }
@@ -199,14 +199,14 @@ fn uniformBlock(self: *Parser) Error!ast.UniformBlock {
     return .{ .name = name.bytes, .slot = slot, .fields = fields.items, .offset = keyword.offset };
 }
 
-/// `texture2d atlas : 0;`
-fn texture(self: *Parser) Error!ast.Texture {
+/// `texture2d atlas : 0;`, `texture2d_shadow shadows : 1;`
+fn texture(self: *Parser, ty: ast.Type) Error!ast.Texture {
     const keyword = self.advance();
     const name = try self.expect(.identifier);
     _ = try self.expect(.colon);
     const slot = try self.slotNumber();
     _ = try self.expect(.semicolon);
-    return .{ .name = name.bytes, .slot = slot, .offset = keyword.offset };
+    return .{ .name = name.bytes, .ty = ty, .slot = slot, .offset = keyword.offset };
 }
 
 /// `const float pi = 3.14159;`

@@ -74,8 +74,8 @@
 //! texture is a pure function of its kind and its slot, and is written down in
 //! that module.
 //!
-//! **It does not have everything.** No arrays, no structs, no integer
-//! vectors, no matrix literals, no compute stage. Most of those are left out
+//! **It does not have everything.** No arrays outside a uniform block, no
+//! structs, no integer vectors, no matrix literals, no compute stage. Most of those are left out
 //! for one reason: they are where GLSL and HLSL stop agreeing, and a library
 //! that emitted both from one description would be promising something it
 //! could not keep. The README names each one and why.
@@ -340,7 +340,7 @@ fn blocksOf(keep: Allocator, program: *const ast.Program) Allocator.Error![]cons
 fn texturesOf(keep: Allocator, program: *const ast.Program) Allocator.Error![]const Module.Texture {
     const out = try keep.alloc(Module.Texture, program.textures.len);
     for (program.textures, out) |t, *entry| {
-        entry.* = .{ .name = try keep.dupe(u8, t.name), .slot = t.slot };
+        entry.* = .{ .name = try keep.dupe(u8, t.name), .slot = t.slot, .shadow = t.ty == .texture2d_shadow };
     }
     return out;
 }

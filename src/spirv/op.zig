@@ -68,6 +68,7 @@ pub const Op = enum(u16) {
     sampled_image = 86,
     image_sample_implicit_lod = 87,
     image_sample_explicit_lod = 88,
+    image_sample_dref_explicit_lod = 90,
     convert_f_to_s = 110,
     convert_s_to_f = 111,
     s_negate = 126,
@@ -302,6 +303,7 @@ pub fn info(op: Op) Info {
         .sampled_image => .{ .has_type = t, .has_result = t, .operands = &.{ .id, .id } },
         .image_sample_implicit_lod => .{ .has_type = t, .has_result = t, .operands = &.{ .id, .id, .lits } },
         .image_sample_explicit_lod => .{ .has_type = t, .has_result = t, .operands = &.{ .id, .id, .lit, .ids } },
+        .image_sample_dref_explicit_lod => .{ .has_type = t, .has_result = t, .operands = &.{ .id, .id, .id, .lit, .ids } },
 
         .convert_f_to_s, .convert_s_to_f, .s_negate, .f_negate, .logical_not, .dpdx, .dpdy => .{
             .has_type = t,

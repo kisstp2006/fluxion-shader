@@ -37,6 +37,8 @@ pub const Type = enum {
     mat3,
     mat4,
     texture2d,
+    /// A depth picture read by comparing with it: a shadow map.
+    texture2d_shadow,
 
     pub fn fromName(name: []const u8) ?Type {
         return std.meta.stringToEnum(Type, name);
@@ -55,6 +57,7 @@ pub const Type = enum {
             .mat3 => "mat3",
             .mat4 => "mat4",
             .texture2d => "sampler2D",
+            .texture2d_shadow => "sampler2DShadow",
         };
     }
 
@@ -70,7 +73,7 @@ pub const Type = enum {
             .mat2 => "float2x2",
             .mat3 => "float3x3",
             .mat4 => "float4x4",
-            .texture2d => "Texture2D",
+            .texture2d, .texture2d_shadow => "Texture2D",
         };
     }
 
@@ -79,6 +82,11 @@ pub const Type = enum {
             .bool, .int, .float => true,
             else => false,
         };
+    }
+
+    /// Either kind of texture: a name for one, never a value.
+    pub fn isTexture(self: Type) bool {
+        return self == .texture2d or self == .texture2d_shadow;
     }
 
     pub fn isVector(self: Type) bool {
@@ -228,6 +236,8 @@ pub const CallTarget = union(enum) {
 pub const Builtin = enum {
     // Reading a texture.
     sample,
+    sample_level,
+    sample_compare,
     // One argument, componentwise.
     abs,
     floor,
@@ -529,6 +539,8 @@ pub const UniformBlock = struct {
 
 pub const Texture = struct {
     name: []const u8,
+    /// `texture2d` or `texture2d_shadow`.
+    ty: Type = .texture2d,
     slot: u32,
     offset: u32,
 };
@@ -584,6 +596,8 @@ test "a type knows what each language calls it" {
     try testing.expectEqualStrings("float3x3", Type.mat3.hlsl());
     try testing.expectEqualStrings("sampler2D", Type.texture2d.glsl());
     try testing.expectEqualStrings("Texture2D", Type.texture2d.hlsl());
+    try testing.expectEqualStrings("sampler2DShadow", Type.texture2d_shadow.glsl());
+    try testing.expectEqualStrings("Texture2D", Type.texture2d_shadow.hlsl());
 }
 
 test "a type is one shape or another" {
@@ -591,6 +605,9 @@ test "a type is one shape or another" {
     try testing.expect(Type.vec3.isVector());
     try testing.expect(Type.mat4.isMatrix());
     try testing.expect(!Type.texture2d.isNumeric());
+    try testing.expect(!Type.texture2d_shadow.isNumeric());
+    try testing.expect(Type.texture2d_shadow.isTexture());
+    try testing.expect(!Type.vec4.isTexture());
     try testing.expect(!Type.bool.isNumeric());
     try testing.expectEqual(@as(u32, 3), Type.vec3.components());
     try testing.expectEqual(@as(u32, 4), Type.mat4.dimension());

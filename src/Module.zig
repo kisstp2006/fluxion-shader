@@ -116,6 +116,9 @@ pub const Texture = struct {
     /// called.
     name: []const u8,
     slot: u32,
+    /// A `texture2d_shadow`: read by comparing, so what is bound there is a
+    /// depth texture with a sampler that compares.
+    shadow: bool = false,
 };
 
 arena: std.heap.ArenaAllocator,

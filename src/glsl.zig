@@ -25,6 +25,8 @@
 //! | `target` | an `out vec4` of the emitter's own |
 //! | `vertex_index`, `instance_index` | `gl_VertexID`, `gl_InstanceID` |
 //! | `sample(t, uv)` | `texture(t, uv)` |
+//! | `sample_level(t, uv, lod)` | `textureLod(t, uv, lod)` |
+//! | `sample_compare(t, uv, depth)` | `textureLod(t, vec3(uv, depth), 0.0)` |
 //! | `saturate(x)` | `clamp(x, 0.0, 1.0)` |
 //! | `ddx`, `ddy` | `dFdx`, `dFdy` |
 //! | `atan2(y, x)` | `atan(y, x)` |
@@ -86,6 +88,13 @@ pub const Dialect = enum {
     }
 };
 
+/// What a shadow sampler is declared with. ES gives `sampler2DShadow` no
+/// precision of its own, so one is written where it is declared - and in
+/// both GLSLs, where 3.30 reads it and does nothing, so they stay one text.
+fn precisionOf(ty: ast.Type) []const u8 {
+    return if (ty == .texture2d_shadow) "highp " else "";
+}
+
 /// Write one stage as GLSL 3.30 core.
 pub fn emit(
     program: *const ast.Program,
@@ -146,7 +155,7 @@ pub fn emitDialect(
     }
 
     for (program.textures) |t| {
-        try w.print("uniform {s} {s};\n", .{ ast.Type.texture2d.glsl(), t.name });
+        try w.print("uniform {s}{s} {s};\n", .{ precisionOf(t.ty), t.ty.glsl(), t.name });
     }
     if (program.textures.len > 0) try w.writeByte('\n');
 
@@ -182,7 +191,7 @@ fn signature(self: *Emitter, f: ast.Function) Emitter.Error!void {
     try self.w.print("{s} {s}(", .{ f.returns.glsl(), f.name });
     for (f.params, 0..) |param, i| {
         if (i > 0) try self.w.writeAll(", ");
-        try self.w.print("{s} {s}", .{ param.ty.glsl(), param.name });
+        try self.w.print("{s}{s} {s}", .{ precisionOf(param.ty), param.ty.glsl(), param.name });
     }
     try self.w.writeByte(')');
 }

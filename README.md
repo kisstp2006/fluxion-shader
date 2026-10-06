@@ -155,6 +155,7 @@ the crossing taken out, and the stage boundaries made explicit.
 | `uniform Lights : 1 { vec4 colours[16]; }` | A field that is an array: read an element at a time, `colours[i]`, by an `int` - a number out of its range is refused. It has no first value; the program fills it. |
 | `uniform Look : 1 { float strength = 0.5; }` | A field with a first value, written in numbers: a number, a negated one, or a vector made of them (`vec4(1.0)`). Not emitted - a block has nowhere to keep it - but handed back as `Field.default`, for the program filling the buffer to start from. |
 | `texture2d atlas : 0;` | A texture at slot 0, and the sampler that goes with it. |
+| `texture2d_shadow shadows : 1;` | A depth texture at slot 1, read by comparing with it, and a sampler that compares. `Module.Texture.shadow` says so, for the program binding it. |
 | `const float pi = 3.14159;` | A compile-time constant. |
 | `vec2 scale(vec2 v, float s) { … }` | A function. |
 | `vertex { … }` / `fragment { … }` | The two stages. One of each, and both are required. |
@@ -162,7 +163,7 @@ the crossing taken out, and the stage boundaries made explicit.
 ### Types
 
 `float`, `int`, `bool`, `vec2`, `vec3`, `vec4`, `mat2`, `mat3`, `mat4`,
-`texture2d`. Swizzles are `xyzw` or `rgba`, up to four components, and the two
+`texture2d`, `texture2d_shadow`. Swizzles are `xyzw` or `rgba`, up to four components, and the two
 sets may not be mixed.
 
 `int` is there for loop counters. A whole number written where a float belongs
@@ -188,7 +189,7 @@ attribute could not be.
 
 ### The functions it brings
 
-`sample`, `abs`, `floor`, `ceil`, `fract`, `sqrt`, `inversesqrt`, `sin`,
+`sample`, `sample_level`, `sample_compare`, `abs`, `floor`, `ceil`, `fract`, `sqrt`, `inversesqrt`, `sin`,
 `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `log`, `exp2`, `log2`,
 `sign`, `normalize`, `saturate`, `ddx`, `ddy`, `min`, `max`, `pow`, `mod`,
 `step`, `reflect`, `clamp`, `mix`, `smoothstep`, `length`, `distance`, `dot`,
@@ -222,6 +223,8 @@ differs it is written out:
 | This language | GLSL | HLSL | SPIR-V |
 | --- | --- | --- | --- |
 | `sample(t, uv)` | `texture(t, uv)` | `t.Sample(t_sampler, uv)` | `OpImageSampleImplicitLod`, and level 0 in the vertex stage |
+| `sample_level(t, uv, lod)` | `textureLod(t, uv, lod)` | `t.SampleLevel(t_sampler, uv, lod)` | `OpImageSampleExplicitLod` |
+| `sample_compare(s, uv, depth)` | `textureLod(s, vec3(uv, depth), 0.0)` | `s.SampleCmpLevelZero(s_sampler, uv, depth)` | `OpImageSampleDrefExplicitLod` at level 0 |
 | `fract`, `mix`, `inversesqrt` | the same | `frac`, `lerp`, `rsqrt` | `Fract`, `FMix`, `InverseSqrt` |
 | `saturate(x)` | `clamp(x, 0.0, 1.0)` | the same | `FClamp(x, 0, 1)` |
 | `ddx`, `ddy` | `dFdx`, `dFdy` | the same | `OpDPdx`, `OpDPdy` |
@@ -229,6 +232,15 @@ differs it is written out:
 | `mod(a, b)` | the same | `a - b * floor(a / b)` | `a - b * floor(a / b)` |
 | `m * v` | the same | `mul(m, v)` | `OpMatrixTimesVector` |
 | `vec4(x)` for one scalar `x` | the same | `((float4)(x))` | `OpCompositeConstruct`, or one constant |
+
+**The two reads that name a level work anywhere.** `sample` takes its level
+from the derivatives a fragment has, which a loop or a branch that pixels take
+differently leaves undefined. `sample_level` is told the level, and
+`sample_compare` always reads level zero - which a shadow map, having one, is
+read at anyway - so a filter that takes nine readings in a loop is the same in
+every stage and every target. GLSL ES gives `sampler2DShadow` no precision of
+its own, so the GLSL declares it `highp`, in both GLSLs: 3.30 reads the word
+and does nothing.
 
 The `mod` and `*` rows are the ones that would be wrong rather than merely
 misspelled. HLSL's `fmod` takes the sign of the numerator and GLSL's `mod`
@@ -343,6 +355,7 @@ is the projection's job, or a negative-height viewport's.
 | --- | --- | --- | --- |
 | `uniform Frame : n { … }` | 0 | `n` | `Uniform`, the struct decorated `Block` |
 | `texture2d atlas : n;` | 1 | `n` | `UniformConstant`, a combined image sampler (`OpTypeSampledImage` over a 2D float image) |
+| `texture2d_shadow shadows : n;` | 1 | `n` | the same over a 2D depth image |
 
 That matches the RHI, which has two slot spaces (`setUniformBuffer(slot)` and
 `setTexture(slot)`), needs no magic base numbers, and keeps the binding of a
@@ -386,7 +399,7 @@ this step**; the ones that are next are marked.
 | --- | --- |
 | Structs, and arrays outside a block (next) | A struct is rounded to sixteen in `std140` and not in a constant buffer; an array in a function is another kind of local in four targets. An array in a uniform block is here: see [the block layout](#the-block-layout). |
 | Integer vectors (next) | Nothing needs them yet, and every one is another set of conversion rules to get right in four targets. |
-| Cube and 3D samplers (next) | One `texture2d` is the one image type; each is another `OpTypeImage` and another method in HLSL. |
+| Cube, array and 3D samplers (next) | `texture2d` and `texture2d_shadow` are the image types; each other is another `OpTypeImage` and another method in HLSL. |
 | A compute stage (next) | The RHI has no compute pass yet either. When it does. |
 | `frag_coord` (next) | Its origin is the bottom left in OpenGL and the top left everywhere else, and correcting it needs the viewport height, which a shader cannot invent. |
 | Matrix literals | `mat4(a, b, c, d)` builds from columns in GLSL and from rows in HLSL, and `mat4(x)` is a diagonal in one and a splat in the other. Matrices arrive in a uniform block, where they agree. |

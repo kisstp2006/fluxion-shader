@@ -176,7 +176,7 @@ fn checkDeclarations(self: *Sema) Error!void {
     for (self.program.attributes) |a| {
         try self.declareGlobal(&seen, a.name, a.offset);
         try Slots.clash(self, &locations, a.location, a.offset, "attributes");
-        if (a.ty == .texture2d or a.ty == .bool or a.ty == .void) {
+        if (a.ty.isTexture() or a.ty == .bool or a.ty == .void) {
             self.diagnostics.report(a.offset, "an attribute cannot be {s}", .{a.ty.glsl()});
         }
     }
@@ -192,7 +192,7 @@ fn checkDeclarations(self: *Sema) Error!void {
     }
     for (self.program.constants) |c| {
         try self.declareGlobal(&seen, c.name, c.offset);
-        if (c.ty == .texture2d) self.diagnostics.report(c.offset, "a texture is not a constant", .{});
+        if (c.ty.isTexture()) self.diagnostics.report(c.offset, "a texture is not a constant", .{});
     }
     for (self.program.functions) |f| {
         try self.declareGlobal(&seen, f.name, f.offset);
@@ -593,7 +593,7 @@ fn statement(self: *Sema, stmt: *ast.Stmt) Error!void {
 }
 
 fn declareStatement(self: *Sema, declared: *ast.Stmt.Declare, offset: u32) Error!void {
-    if (declared.ty == .texture2d or declared.ty == .void) {
+    if (declared.ty.isTexture() or declared.ty == .void) {
         self.diagnostics.report(offset, "a local cannot be {s}", .{declared.ty.glsl()});
     }
     if (declared.value) |value| {
@@ -810,7 +810,7 @@ fn nameExpr(self: *Sema, expr: *ast.Expr) Error!ast.Type {
         if (std.mem.eql(u8, t.name, text)) {
             expr.kind.name.binding = .{ .texture = @intCast(index) };
             if (index < self.used_textures.len) self.used_textures[index] = true;
-            return .texture2d;
+            return t.ty;
         }
     }
 
@@ -1007,13 +1007,27 @@ fn builtinCall(self: *Sema, expr: *ast.Expr, found: *const builtins.Row) Error!a
     for (types) |ty| if (ty == .void) return .void;
 
     switch (found.typing) {
-        .sample => {
+        .sample, .sample_level => {
+            if (types[0] == .texture2d_shadow) {
+                self.diagnostics.report(args[0].offset, "`{t}` reads a texture2d, and a texture2d_shadow is read with `sample_compare`", .{builtin});
+                return .void;
+            }
             if (types[0] != .texture2d) {
-                self.diagnostics.report(args[0].offset, "`sample` reads a texture, and this is {s}", .{types[0].glsl()});
+                self.diagnostics.report(args[0].offset, "`{t}` reads a texture, and this is {s}", .{ builtin, types[0].glsl() });
                 return .void;
             }
             if (!self.coerce(args[1], .vec2, types[1], "the coordinate")) return .void;
+            if (found.typing == .sample_level and !self.coerce(args[2], .float, types[2], "the level")) return .void;
             return .vec4;
+        },
+        .sample_compare => {
+            if (types[0] != .texture2d_shadow) {
+                self.diagnostics.report(args[0].offset, "`sample_compare` compares with a texture2d_shadow, and this is {s}", .{if (types[0] == .texture2d) "a texture2d" else types[0].glsl()});
+                return .void;
+            }
+            if (!self.coerce(args[1], .vec2, types[1], "the coordinate")) return .void;
+            if (!self.coerce(args[2], .float, types[2], "the depth")) return .void;
+            return .float;
         },
         .matrix => {
             if (!types[0].isMatrix()) {
@@ -1068,7 +1082,7 @@ fn construct(self: *Sema, expr: *ast.Expr, ty: ast.Type) Error!ast.Type {
         self.diagnostics.report(expr.offset, "there is no matrix literal: GLSL builds one from columns and HLSL from rows, and this library will not pick one for you. Pass it in a uniform block.", .{});
         return .void;
     }
-    if (ty == .texture2d or ty == .void) {
+    if (ty.isTexture() or ty == .void) {
         for (args) |arg| _ = try self.expression(arg);
         self.diagnostics.report(expr.offset, "a {s} cannot be made out of anything", .{ty.glsl()});
         return .void;

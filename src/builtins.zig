@@ -52,6 +52,10 @@ pub const Typing = enum {
     cross,
     /// A texture and a `vec2` in, a `vec4` out.
     sample,
+    /// A texture, a `vec2` and a level in, a `vec4` out.
+    sample_level,
+    /// A shadow texture, a `vec2` and a depth in, a `float` out.
+    sample_compare,
     /// A matrix in, the same one out.
     matrix,
 };
@@ -101,6 +105,10 @@ pub const Spirv = struct {
         /// with an explicit level of zero anywhere else, where a derivative
         /// does not exist.
         sample,
+        /// `OpImageSampleExplicitLod` with the level given.
+        sample_level,
+        /// `OpImageSampleDrefExplicitLod` at level zero.
+        sample_compare,
         /// `OpDot` on vectors, and a product on two scalars, which `OpDot`
         /// does not take.
         dot,
@@ -164,6 +172,23 @@ pub const table = [_]Row{
         // texture may only ever be a global there.
         .hlsl = .{ .template = "{0}.Sample({0}_sampler, {1})" },
         .spirv = .{ .lower = .{ .recipe = .sample } },
+    }),
+    r(.sample_level, .{
+        .args = .{ 3, 3 },
+        .typing = .sample_level,
+        .glsl = .{ .call = "textureLod" },
+        .hlsl = .{ .template = "{0}.SampleLevel({0}_sampler, {1}, {2})" },
+        .spirv = .{ .lower = .{ .recipe = .sample_level } },
+    }),
+    r(.sample_compare, .{
+        .args = .{ 3, 3 },
+        .typing = .sample_compare,
+        // GLSL takes the depth as the coordinate's third component. Level
+        // zero, asked for outright, is a read that needs no derivative: the
+        // same in any stage, in a loop and under a branch, as the HLSL one is.
+        .glsl = .{ .template = "textureLod({0}, vec3({1}, {2}), 0.0)" },
+        .hlsl = .{ .template = "{0}.SampleCmpLevelZero({0}_sampler, {1}, {2})" },
+        .spirv = .{ .lower = .{ .recipe = .sample_compare } },
     }),
 
     // One argument, componentwise.
