@@ -453,9 +453,19 @@ without them:
   creation, a long way from the line that caused it.
 - **A varying the vertex stage never writes.** The fragment stage would read
   whatever was in the register.
-- **A name the emitter uses, or one either language reserves.** `input`,
-  `sample`, `linear`, `highp`, HLSL's primitive words - `line`, `point`,
-  `triangle` - anything starting `gl_` or `fluxion`.
+- **A name the emitter uses, or one either language keeps.** Every keyword
+  and every word kept for later of GLSL 3.30, GLSL ES 3.00 and HLSL, as their
+  specifications list them - `packed`, `filter`, `common`, `input`, `linear`,
+  `highp`, HLSL's primitive words `line`, `point`, `triangle`, its C++ words
+  `class`, `template` -; their numbered types, `dvec3`, `float2x3`,
+  `sampler2DMS`; the built-ins one of the compilers this library is tried
+  with will not have redeclared - GLSL ES a constant called `length`, HLSL a
+  function called `clip` -; every function a builtin is written as, `lerp`,
+  `frac`, `dFdx`; a name with two underscores in a row; and anything
+  starting `gl_` or `fluxion`. A driver is stricter than the reference
+  compiler here: `packed` passes `glslangValidator` as a 3.30 name and is
+  refused by a driver that keeps to the specification, so the list is the
+  specifications' rather than what one compiler happens to let by.
 
 And two that SPIR-V needed the checker to say, because nothing else could
 lower them: `<` and its kin are for numbers and not bools, and a whole number

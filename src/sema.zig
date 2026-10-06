@@ -337,30 +337,160 @@ fn literal(expr: *const ast.Expr, out: *[16]f32) ?Literal {
     }
 }
 
-/// Names that would come out of the emitter as something the driver already
-/// means. Not every keyword of both languages - the ones a shader author
-/// reaches for.
+/// Names a shader may not take, because one of the languages it becomes
+/// already means something by them: every keyword and every word reserved
+/// for later of GLSL 3.30, GLSL ES 3.00 and HLSL, as their specifications
+/// list them - a driver refuses `packed` in a 3.30 shader though the
+/// reference compiler lets it by - and the built-in functions of each that
+/// one of the compilers this library is tried with refuses as a name
+/// somewhere: GLSL ES will not have a constant called `length`, nor HLSL a
+/// function called `clip`. A built-in that every one of them lets a shader
+/// hide - `noise`, `lerp` as a local - is not here: hiding it is harmless
+/// unless the emitter calls it, and what the emitter calls is
+/// `emitter_words`.
 const reserved = std.StaticStringMap(void).initComptime(.{
-    .{"main"},        .{"input"},        .{"output"},      .{"position"},        .{"target"},
-    .{"sample"},      .{"texture"},      .{"sampler"},     .{"cbuffer"},         .{"register"},
-    .{"struct"},      .{"in"},           .{"out"},         .{"inout"},           .{"uniform"},
-    .{"varying"},     .{"attribute"},    .{"layout"},      .{"precision"},       .{"discard"},
-    .{"matrix"},      .{"vector"},       .{"row_major"},   .{"column_major"},    .{"static"},
-    .{"groupshared"}, .{"linear"},       .{"centroid"},    .{"nointerpolation"}, .{"noperspective"},
-    .{"float2"},      .{"float3"},       .{"float4"},      .{"float2x2"},        .{"float3x3"},
-    .{"float4x4"},    .{"half"},         .{"double"},      .{"dword"},           .{"lerp"},
-    .{"frac"},        .{"rsqrt"},        .{"ddx"},         .{"ddy"},             .{"mul"},
-    .{"gl_Position"}, .{"gl_FragCoord"}, .{"gl_VertexID"}, .{"gl_InstanceID"},   .{"technique"},
-    // The precisions GLSL ES writes before a type, and which the ES output
-    // declares at the top of every stage.
-    .{"lowp"},        .{"mediump"},      .{"highp"},
-    // HLSL's primitive types, a geometry shader's words, which it refuses as
-    // a name anywhere: `float line = ...` is a syntax error to `fxc`.
-    .{"point"},       .{"line"},         .{"triangle"},    .{"lineadj"},         .{"triangleadj"},
-    // And the words of both that an author reaches for as a name.
-    .{"pass"},        .{"compile"},      .{"shared"},      .{"flat"},            .{"smooth"},
-    .{"buffer"},      .{"packoffset"},
+    .{"AppendStructuredBuffer"}, .{"BlendState"},             .{"Buffer"},                  .{"ByteAddressBuffer"},
+    .{"CompileShader"},          .{"ComputeShader"},          .{"ConsumeStructuredBuffer"}, .{"D3DCOLORtoUBYTE4"},
+    .{"DepthStencilState"},      .{"DepthStencilView"},       .{"DomainShader"},            .{"GeometryShader"},
+    .{"Hullshader"},             .{"InputPatch"},             .{"LineStream"},              .{"NULL"},
+    .{"OutputPatch"},            .{"PixelShader"},            .{"PointStream"},             .{"RWBuffer"},
+    .{"RWByteAddressBuffer"},    .{"RWStructuredBuffer"},     .{"RWTexture2D"},             .{"RasterizerState"},
+    .{"RenderTargetView"},       .{"SamplerComparisonState"}, .{"SamplerState"},            .{"StructuredBuffer"},
+    .{"Texture1D"},              .{"Texture2D"},              .{"Texture2DArray"},          .{"Texture3D"},
+    .{"TextureCube"},            .{"TriangleStream"},         .{"VertexShader"},            .{"abs"},
+    .{"acos"},                   .{"acosh"},                  .{"active"},                  .{"all"},
+    .{"any"},                    .{"asin"},                   .{"asinh"},                   .{"asm"},
+    .{"atan"},                   .{"atanh"},                  .{"atomic_uint"},             .{"attribute"},
+    .{"auto"},                   .{"break"},                  .{"buffer"},                  .{"case"},
+    .{"cast"},                   .{"catch"},                  .{"cbuffer"},                 .{"ceil"},
+    .{"centroid"},               .{"char"},                   .{"clamp"},                   .{"class"},
+    .{"clip"},                   .{"coherent"},               .{"column_major"},            .{"common"},
+    .{"compile"},                .{"compile_fragment"},       .{"const"},                   .{"const_cast"},
+    .{"continue"},               .{"cos"},                    .{"cosh"},                    .{"cross"},
+    .{"dFdx"},                   .{"dFdy"},                   .{"ddx"},                     .{"ddx_coarse"},
+    .{"ddx_fine"},               .{"ddy"},                    .{"ddy_coarse"},              .{"ddy_fine"},
+    .{"default"},                .{"degrees"},                .{"delete"},                  .{"determinant"},
+    .{"discard"},                .{"distance"},               .{"do"},                      .{"dot"},
+    .{"double"},                 .{"dword"},                  .{"dynamic_cast"},            .{"else"},
+    .{"enum"},                   .{"equal"},                  .{"exp"},                     .{"exp2"},
+    .{"explicit"},               .{"export"},                 .{"extern"},                  .{"external"},
+    .{"faceforward"},            .{"false"},                  .{"filter"},                  .{"fixed"},
+    .{"flat"},                   .{"floatBitsToInt"},         .{"floatBitsToUint"},         .{"floor"},
+    .{"for"},                    .{"fract"},                  .{"friend"},                  .{"fwidth"},
+    .{"fxgroup"},                .{"goto"},                   .{"greaterThan"},             .{"greaterThanEqual"},
+    .{"groupshared"},            .{"half"},                   .{"highp"},                   .{"if"},
+    .{"imageLoad"},              .{"imageStore"},             .{"in"},                      .{"inline"},
+    .{"inout"},                  .{"input"},                  .{"intBitsToFloat"},          .{"interface"},
+    .{"invariant"},              .{"inverse"},                .{"inversesqrt"},             .{"isinf"},
+    .{"isnan"},                  .{"layout"},                 .{"length"},                  .{"lessThan"},
+    .{"lessThanEqual"},          .{"line"},                   .{"lineadj"},                 .{"linear"},
+    .{"log"},                    .{"log2"},                   .{"long"},                    .{"lowp"},
+    .{"main"},                   .{"matrix"},                 .{"matrixCompMult"},          .{"max"},
+    .{"mediump"},                .{"memoryBarrier"},          .{"min"},                     .{"min10float"},
+    .{"min12int"},               .{"min16float"},             .{"min16int"},                .{"min16uint"},
+    .{"mix"},                    .{"mod"},                    .{"modf"},                    .{"mutable"},
+    .{"namespace"},              .{"new"},                    .{"noinline"},                .{"nointerpolation"},
+    .{"noise2"},                 .{"noise3"},                 .{"noise4"},                  .{"noperspective"},
+    .{"normalize"},              .{"not"},                    .{"notEqual"},                .{"operator"},
+    .{"out"},                    .{"outerProduct"},           .{"output"},                  .{"packHalf2x16"},
+    .{"packSnorm2x16"},          .{"packUnorm2x16"},          .{"packed"},                  .{"packoffset"},
+    .{"partition"},              .{"pass"},                   .{"patch"},                   .{"pixelfragment"},
+    .{"point"},                  .{"pow"},                    .{"precise"},                 .{"precision"},
+    .{"private"},                .{"protected"},              .{"public"},                  .{"radians"},
+    .{"readonly"},               .{"reflect"},                .{"refract"},                 .{"register"},
+    .{"reinterpret_cast"},       .{"resource"},               .{"restrict"},                .{"return"},
+    .{"round"},                  .{"roundEven"},              .{"row_major"},               .{"sample"},
+    .{"sampler"},                .{"shared"},                 .{"short"},                   .{"sign"},
+    .{"signed"},                 .{"sin"},                    .{"sinh"},                    .{"sizeof"},
+    .{"smooth"},                 .{"smoothstep"},             .{"snorm"},                   .{"sqrt"},
+    .{"stateblock"},             .{"stateblock_state"},       .{"static"},                  .{"static_cast"},
+    .{"step"},                   .{"string"},                 .{"struct"},                  .{"subroutine"},
+    .{"superp"},                 .{"switch"},                 .{"tan"},                     .{"tanh"},
+    .{"tbuffer"},                .{"technique"},              .{"technique10"},             .{"technique11"},
+    .{"template"},               .{"texelFetch"},             .{"texelFetchOffset"},        .{"texture"},
+    .{"texture1D"},              .{"texture2D"},              .{"texture3D"},               .{"textureCube"},
+    .{"textureGather"},          .{"textureGatherOffset"},    .{"textureGatherOffsets"},    .{"textureGrad"},
+    .{"textureGradOffset"},      .{"textureLod"},             .{"textureLodOffset"},        .{"textureOffset"},
+    .{"textureProj"},            .{"textureProjGrad"},        .{"textureProjGradOffset"},   .{"textureProjLod"},
+    .{"textureProjLodOffset"},   .{"textureProjOffset"},      .{"textureSize"},             .{"this"},
+    .{"throw"},                  .{"transpose"},              .{"triangle"},                .{"triangleadj"},
+    .{"true"},                   .{"trunc"},                  .{"try"},                     .{"typedef"},
+    .{"typename"},               .{"uint"},                   .{"uintBitsToFloat"},         .{"uniform"},
+    .{"union"},                  .{"unorm"},                  .{"unpackHalf2x16"},          .{"unpackSnorm2x16"},
+    .{"unpackUnorm2x16"},        .{"unsigned"},               .{"using"},                   .{"varying"},
+    .{"vector"},                 .{"vertexfragment"},         .{"virtual"},                 .{"volatile"},
+    .{"while"},                  .{"writeonly"},
+    // What the language itself writes to, and what the emitters write.
+                 .{"position"},                .{"target"},
+    .{"mul"},                    .{"gl_Position"},            .{"gl_FragCoord"},            .{"gl_VertexID"},
+    .{"gl_InstanceID"},
 });
+
+/// Every function a builtin is written as in either language - `lerp` for
+/// `mix`, `frac`, `dFdx`, and the names in a template, `floor` in HLSL's
+/// `mod` - which a name of the shader's would hide where the call is written.
+const emitter_words = blk: {
+    @setEvalBranchQuota(100_000);
+    var words: []const []const u8 = &.{};
+    for (builtins.table) |row| {
+        for ([_]builtins.Text{ row.glsl, row.hlsl }) |text| switch (text) {
+            .same => {},
+            .call => |name| words = words ++ .{name},
+            .call_by_arity => |by| words = words ++ .{ by.one, by.two },
+            .template => |template| {
+                var at = 0;
+                while (at < template.len) {
+                    if (!std.ascii.isAlphabetic(template[at])) {
+                        at += 1;
+                        continue;
+                    }
+                    const first = at;
+                    while (at < template.len and (std.ascii.isAlphanumeric(template[at]) or template[at] == '_')) at += 1;
+                    words = words ++ .{template[first..at]};
+                }
+            },
+        };
+    }
+    var pairs: [words.len]struct { []const u8 } = undefined;
+    for (words, 0..) |word, i| pairs[i] = .{word};
+    break :blk std.StaticStringMap(void).initComptime(pairs);
+};
+
+/// A type of GLSL's or HLSL's spelled with numbers, which neither lets a
+/// name be: `dvec3`, `mat2x3`, `float4x4`, `min16float2`, `sampler2DArray`.
+fn isTargetType(text: []const u8) bool {
+    const numbered = [_][]const u8{ "bool", "int", "uint", "dword", "half", "float", "double", "min16float", "min10float", "min16int", "min12int", "min16uint" };
+    for (numbered) |base| {
+        if (!std.mem.startsWith(u8, text, base)) continue;
+        const rest = text[base.len..];
+        if (rest.len == 1 and inRange(rest[0], '1', '4')) return true;
+        if (rest.len == 3 and inRange(rest[0], '1', '4') and rest[1] == 'x' and inRange(rest[2], '1', '4')) return true;
+    }
+    for ([_][]const u8{ "vec", "ivec", "uvec", "bvec", "dvec", "hvec", "fvec" }) |base| {
+        if (text.len == base.len + 1 and std.mem.startsWith(u8, text, base) and inRange(text[base.len], '2', '4')) return true;
+    }
+    for ([_][]const u8{ "mat", "dmat" }) |base| {
+        if (!std.mem.startsWith(u8, text, base)) continue;
+        const rest = text[base.len..];
+        if (rest.len == 1 and inRange(rest[0], '2', '4')) return true;
+        if (rest.len == 3 and inRange(rest[0], '2', '4') and rest[1] == 'x' and inRange(rest[2], '2', '4')) return true;
+    }
+    var kind = text;
+    if (kind.len > 0 and (kind[0] == 'i' or kind[0] == 'u')) kind = kind[1..];
+    for ([_][]const u8{ "sampler", "image" }) |base| {
+        if (!std.mem.startsWith(u8, kind, base)) continue;
+        var shape = kind[base.len..];
+        if (std.mem.endsWith(u8, shape, "Shadow")) shape = shape[0 .. shape.len - "Shadow".len];
+        for ([_][]const u8{ "1D", "2D", "3D", "Cube", "2DRect", "3DRect", "Buffer", "2DMS", "1DArray", "2DArray", "CubeArray", "2DMSArray" }) |known| {
+            if (std.mem.eql(u8, shape, known)) return true;
+        }
+    }
+    return false;
+}
+
+fn inRange(c: u8, low: u8, high: u8) bool {
+    return c >= low and c <= high;
+}
 
 fn checkName(self: *Sema, text: []const u8, offset: u32) void {
     if (ast.Type.fromName(text) != null) {
@@ -371,8 +501,13 @@ fn checkName(self: *Sema, text: []const u8, offset: u32) void {
         self.diagnostics.report(offset, "`{s}` is a function this language brings with it", .{text});
         return;
     }
-    if (reserved.has(text)) {
+    if (reserved.has(text) or emitter_words.has(text) or isTargetType(text)) {
         self.diagnostics.report(offset, "`{s}` means something to GLSL or to HLSL, so it cannot be a name here", .{text});
+        return;
+    }
+    // GLSL keeps every name with two underscores in a row for itself.
+    if (std.mem.indexOf(u8, text, "__") != null) {
+        self.diagnostics.report(offset, "`{s}` has two underscores in a row, which GLSL keeps for itself", .{text});
         return;
     }
     if (std.ascii.startsWithIgnoreCase(text, "fluxion") or std.mem.startsWith(u8, text, "gl_")) {

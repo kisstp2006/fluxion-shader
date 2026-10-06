@@ -695,6 +695,54 @@ test "a name the emitter uses cannot be taken" {
     , "means something to GLSL or to HLSL");
 }
 
+test "every word a target keeps is refused as a name, wherever it is declared" {
+    // `packed` is a word GLSL 3.30 keeps for later: a driver refuses it,
+    // though the reference compiler lets it by. The rest are the same kind
+    // of word, of one target or another: GLSL's for later, ES's `patch`,
+    // HLSL's C++ heritage, a built-in GLSL ES will not have redeclared, a
+    // function the HLSL emitter writes, a numbered type of each, and a name
+    // with two underscores in a row.
+    const words = [_][]const u8{ "packed", "filter", "common", "active", "resource", "patch", "goto", "class", "union", "template", "namespace", "round", "all", "lerp", "frac", "dFdx", "clip", "dvec3", "float2x3", "min16float4", "sampler2DMS", "isamplerCube", "Texture2D", "a__b" };
+    for (words) |word| {
+        inline for (.{
+            \\vertex {{ position = vec4(1.0); }}
+            \\fragment {{ float {s} = 0.5; target = vec4({s}); }}
+            ,
+            \\const float {s} = 0.5;
+            \\vertex {{ position = vec4(1.0); }}
+            \\fragment {{ target = vec4({s}); }}
+            ,
+            \\float {s}(float x) {{ return x; }}
+            \\vertex {{ position = vec4(1.0); }}
+            \\fragment {{ target = vec4({s}(0.5)); }}
+        }) |shape| {
+            var source: [256]u8 = undefined;
+            const text = try std.fmt.bufPrint(&source, shape, .{ word, word });
+            const wanted = if (std.mem.indexOf(u8, word, "__") != null) "two underscores in a row" else "means something to GLSL or to HLSL";
+            try expectRefused(text, wanted);
+        }
+    }
+}
+
+test "a name only like a word a target keeps is a name" {
+    // A built-in every target lets a shader hide, and words with a kept
+    // word inside them.
+    for ([_][]const u8{ "noise", "dst", "lit", "packedColor", "samplerIndex", "imageCount", "vec5", "mat2x5", "float5", "a_b" }) |word| {
+        var source: [256]u8 = undefined;
+        const text = try std.fmt.bufPrint(&source,
+            \\vertex {{ position = vec4(1.0); }}
+            \\fragment {{ float {s} = 0.5; target = vec4({s}); }}
+        , .{ word, word });
+        var log: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer log.deinit();
+        var compiled = shader.compile(testing.allocator, text, &log.writer) catch |err| {
+            std.debug.print("\n`{s}` was refused:\n{s}\n", .{ word, log.written() });
+            return err;
+        };
+        compiled.deinit();
+    }
+}
+
 test "a precision is not a name" {
     // Keywords in both GLSLs, and written at the top of every ES stage - so
     // a variable called one would be a driver's complaint about the header
